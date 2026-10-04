@@ -5,7 +5,7 @@
 - 创建日期：2026-10-04
 - 最近更新：2026-10-04
 - 时间基准：Asia/Shanghai（北京时间）
-- 当前阶段：M0 本地迁移基线已完成；GitHub 推送待完成
+- 当前阶段：M0 迁移基线已完成并推送GitHub；下一阶段M1数据库、身份与持久化
 - 源项目：`D:\Coding\Java-learn\brownie-ai-agent`
 - 目标项目：`D:\Coding\Java-learn\lishouAgent`
 - 目标仓库：`https://github.com/brownieya/lishouAgent.git`
@@ -461,7 +461,7 @@ SSE 至少区分 `answer`、`sources`、`done`、`error`，可选 `status` 和 `
 
 #### 2026-10-04 — MIGRATE-001：迁移基线、安全配置与数据库脚本
 
-- 状态：本地迁移与验证已完成；远程推送待完成。
+- 状态：已完成；本地迁移、构建测试、安全检查和GitHub main推送通过。
 - 完成内容：建立独立 Git 暂存工程；公开配置拆为通用/local/prod，实际 Key 与原数据库凭据仅复制到忽略的 `config/application-local.yml`；新 JDBC 数据库为 `lishou_agent`。复制 Wiki 到 `data/wiki/source`，保留目录与图片。
 - 前端：统一公司聊天页、POST SSE、来源展示、停止与断线处理；移除 LoveApp、Manus 和未用 Axios；补 Nginx 和前端 Dockerfile。
 - 数据库：生成建库 SQL、Flyway V1 与 `docs/DATABASE_SETUP.md`；共 11 张业务/向量表，1024 维 HNSW cosine；无默认账号、无真实凭据。
@@ -472,7 +472,8 @@ SSE 至少区分 `answer`、`sources`、`done`、`error`，可选 `status` 和 `
 - GitHub：初次连接失败，后续重试已连通并确认空仓库。公开提交候选文件检查 62 个，真实 Key/密码匹配 0；私有配置、Wiki、备份、构建产物和依赖目录都在 Git 忽略范围。
 - 限制：本机未配置 Docker/psql，本次不执行真实数据库 SQL、私有资料 Embedding、真实模型问答或生产部署。图片只复制，未理解。身份、数据库聊天历史、知识管理和完整增量导入尚未实现。
 - 本地迁移验证：目标目录63个公开文件、15个私有Wiki/图片文件及本地配置逐文件SHA-256一致；真实资料和Key保持Git忽略。
-- 下一步：完成远程同步；继续 M1 数据与身份任务。
+- 远程迁移：已推送到 https://github.com/brownieya/lishouAgent.git 的 main 分支；公司资料与真实配置未提交。
+- 下一步：M1-01/M1-02，执行新库初始化验证，再实现身份入口与完整聊天历史。
 
 ### 8.3 后续进度日志模板
 
