@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: lishou-agent
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  ai:
+    dashscope:
+      chat:
+        options:
+          model: ${CHAT_MODEL:qwen-plus}
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-v3}
+          dimensions: 1024
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    default-schema: public
+    validate-on-migrate: true
+    baseline-on-migrate: false
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 50MB
+
+server:
+  port: ${SERVER_PORT:8124}
+
+lishou:
+  knowledge:
+    source-dir: ${WIKI_SOURCE_DIR:./data/wiki/source}
+  chat-memory:
+    directory: ${CHAT_MEMORY_DIR:./data/chat-memory}
+  rag:
+    top-k: 5
+    similarity-threshold: 0.45

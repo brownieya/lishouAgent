@@ -1,0 +1,53 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-lishou_agent}
+      POSTGRES_USER: ${DB_USERNAME:?Set DB_USERNAME in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PUBLISHED_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-lishou_agent}
+      DB_USERNAME: ${DB_USERNAME:?Set DB_USERNAME in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?Set DASHSCOPE_API_KEY in .env}
+      CHAT_MODEL: ${CHAT_MODEL:-qwen-plus}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v3}
+      WIKI_SOURCE_DIR: /app/data/wiki/source
+      CHAT_MEMORY_DIR: /app/data/chat-memory
+    volumes:
+      - ./data/wiki/source:/app/data/wiki/source:ro
+      - chat_memory:/app/data/chat-memory
+    expose:
+      - "8124"
+
+  frontend:
+    build: ./lishou-agent-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"
+
+volumes:
+  pg_data:
+  chat_memory:

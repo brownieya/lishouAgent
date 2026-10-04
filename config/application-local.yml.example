@@ -1,0 +1,10 @@
+# Copy to application-local.yml and fill locally; never commit the real values.
+# Run Maven / the application from the project root to load ./config automatically.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lishou_agent
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}

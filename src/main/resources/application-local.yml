@@ -1,0 +1,10 @@
+# Tracked local profile: only environment references. Actual local secrets live in
+# the ignored external ./config/application-local.yml (Spring Boot loads it automatically).
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:lishou_agent}}
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+  ai:
+    dashscope:
+      api-key: ${DASHSCOPE_API_KEY:}

@@ -1,0 +1,54 @@
+:root {
+  /* ---------- 字体 ---------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* ---------- 圆角 ---------- */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  /* ---------- 间距（4/8 栅格）---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-8: 48px;
+  --space-10: 64px;
+
+  /* ---------- 阴影 ---------- */
+  --shadow-sm: 0 1px 2px rgba(15, 15, 35, 0.08);
+  --shadow-md: 0 8px 24px rgba(15, 15, 35, 0.16);
+  --shadow-lg: 0 24px 64px rgba(15, 15, 35, 0.28);
+
+  /* ---------- 动效 ---------- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 240ms;
+
+  /* ---------- 中性色（暗色底）---------- */
+  --neutral-950: #0b0c14;
+  --neutral-900: #12131f;
+  --neutral-800: #1a1c2b;
+  --neutral-700: #262838;
+  --neutral-600: #383a4d;
+  --neutral-400: #8688a0;
+  --neutral-200: #c9cadb;
+  --neutral-100: #e8e8f2;
+  --neutral-0: #ffffff;
+
+}
+
+/* 公司知识助手主题。 */
+.theme-lishou {
+  --accent-1: #6366f1;
+  --accent-2: #22d3ee;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-gradient: linear-gradient(135deg, #6366f1 0%, #4c8ef7 55%, #22d3ee 100%);
+  --bg-gradient: radial-gradient(60% 55% at 85% 10%, rgba(34, 211, 238, 0.28) 0%, transparent 60%),
+    radial-gradient(55% 50% at 12% 15%, rgba(99, 102, 241, 0.32) 0%, transparent 60%),
+    radial-gradient(70% 60% at 50% 100%, rgba(79, 70, 229, 0.18) 0%, transparent 60%), var(--neutral-950);
+}

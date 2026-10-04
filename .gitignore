@@ -1,0 +1,33 @@
+# Local secrets. Only reviewed, placeholder-only examples belong in Git.
+/.env
+/.env.*
+!/.env.example
+/config/**
+!/config/
+!/config/*.example
+**/application-secrets*.yml
+**/mcp-servers*.json
+*.pem
+*.key
+*.p12
+*.jks
+
+# Company Wiki, images, chat memory and runtime files are local private data.
+/data/**
+!/data/README.md
+/lishou-private-data*/
+/tmp/
+/logs/
+/backups/
+*.dump
+*.log
+
+# Builds / IDE files
+/target/
+**/node_modules/
+**/dist/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
