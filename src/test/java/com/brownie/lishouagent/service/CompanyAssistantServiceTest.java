@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -106,6 +107,27 @@ class CompanyAssistantServiceTest {
         var events = assistant.stream("怎么部署？", CHAT_ID).take(2).collectList().block(Duration.ofSeconds(10));
         assertThat(events).extracting(event -> event.event()).containsExactly("sources", "answer");
         assertThat(memory.findByConversationId(CHAT_ID)).isEmpty();
+    }
+
+    @Test
+    void interfaceFollowUpSearchesOnlyTheEndpointNamedInThePreviousQuestion() {
+        var model = model();
+        var store = mock(VectorStore.class);
+        var memory = new FileBasedChatMemoryRepository(directory);
+        memory.saveAll(CHAT_ID, List.of(
+                new UserMessage("/api/v1/demo/order/receive 是哪个项目的？"),
+                new AssistantMessage("订单下发接口。")));
+        when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
+        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 5, .45);
+
+        assistant.stream("这个接口的请求参数是什么？", CHAT_ID).collectList().block(Duration.ofSeconds(10));
+
+        ArgumentCaptor<SearchRequest> search = ArgumentCaptor.forClass(SearchRequest.class);
+        verify(store).similaritySearch(search.capture());
+        assertThat(search.getValue().hasFilterExpression()).isTrue();
+        assertThat(search.getValue().getFilterExpression().toString())
+                .contains("endpoint", "/api/v1/demo/order/receive");
+        verify(model, never()).stream(any(Prompt.class));
     }
 
     private static ChatModel model() {

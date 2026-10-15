@@ -2,7 +2,9 @@ package com.brownie.lishouagent.service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.ai.document.Document;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -62,5 +64,39 @@ class LocalWikiDocumentLoaderTest {
         Files.writeString(directory.resolve("空白.md"), " \n\t");
         assertThatThrownBy(() -> new LocalWikiDocumentLoader(directory).load())
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void interfaceChunksKeepTheirOwnEndpointAndNeverIncludeTheNextInterface() throws Exception {
+        StringBuilder markdown = new StringBuilder("""
+                # 接口规范
+
+                ## 接口 1：订单下发
+                - URL：`/api/v1/demo/order/receive`
+                - 请求体为订单数组，明细在 items 中。
+                """);
+        for (int index = 0; index < 180; index++) {
+            markdown.append("| order_field_").append(index).append(" | 订单字段说明 |\n");
+        }
+        markdown.append("""
+
+                ## 接口 2：排程反馈
+                - URL：`/api/v1/demo/schedule/feedback`
+                - 请求体包含 data 数组和 schedule_field 字段。
+                """);
+        Files.writeString(directory.resolve("接口规范.md"), markdown);
+
+        List<Document> chunks = new LocalWikiDocumentLoader(directory).load();
+        List<Document> orderChunks = chunks.stream()
+                .filter(chunk -> "/api/v1/demo/order/receive".equals(chunk.getMetadata().get("endpoint"))).toList();
+        assertThat(orderChunks).hasSizeGreaterThan(1)
+                .allSatisfy(chunk -> assertThat(chunk.getText())
+                        .contains("/api/v1/demo/order/receive")
+                        .doesNotContain("排程反馈", "schedule_field"));
+        assertThat(orderChunks).allSatisfy(chunk -> assertThat(chunk.getMetadata())
+                .containsEntry("section", "接口 1：订单下发"));
+        assertThat(chunks).anySatisfy(chunk -> assertThat(chunk.getMetadata())
+                .containsEntry("endpoint", "/api/v1/demo/schedule/feedback")
+                .containsEntry("section", "接口 2：排程反馈"));
     }
 }
