@@ -95,18 +95,26 @@ public class LocalWikiDocumentLoader {
         return UUID.nameUUIDFromBytes(value.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
-    // load 的辅助方法：把 Markdown 按二级标题划为独立业务章节，保留标题前的导言。
+    // load 的辅助方法：按二级标题划分章节；导言与紧邻的通用约定一起提供完整规范。
     private static List<WikiSection> sections(String text, String title) {
         var sections = new ArrayList<WikiSection>();
         var matcher = SECTION.matcher(text);
         int start = 0;
         String sectionTitle = title;
+        boolean firstHeading = true;
         while (matcher.find()) {
+            String heading = matcher.group(1).trim();
+            if (firstHeading && heading.equals("通用约定")) {
+                sectionTitle = heading;
+                firstHeading = false;
+                continue;
+            }
             if (!text.substring(start, matcher.start()).isBlank()) {
                 sections.add(new WikiSection(sectionTitle, text.substring(start, matcher.start())));
             }
             start = matcher.start();
-            sectionTitle = matcher.group(1).trim();
+            sectionTitle = heading;
+            firstHeading = false;
         }
         sections.add(new WikiSection(sectionTitle, text.substring(start)));
         return sections;

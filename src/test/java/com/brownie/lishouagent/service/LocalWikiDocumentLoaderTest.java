@@ -99,4 +99,28 @@ class LocalWikiDocumentLoaderTest {
                 .containsEntry("endpoint", "/api/v1/demo/schedule/feedback")
                 .containsEntry("section", "接口 2：排程反馈"));
     }
+
+    @Test
+    void documentPrefaceAndFirstCommonConventionsRemainInOneChunk() throws Exception {
+        Files.writeString(directory.resolve("接口规范.md"), """
+                # 接口规范
+                > Base URL：待定
+
+                ## 通用约定
+                - 认证方式：待定
+
+                ## 接口 1：订单下发
+                - URL：`/api/v1/demo/order/receive`
+                """);
+
+        List<Document> chunks = new LocalWikiDocumentLoader(directory).load();
+        assertThat(chunks).anySatisfy(chunk -> {
+            assertThat(chunk.getMetadata()).containsEntry("section", "通用约定").doesNotContainKey("endpoint");
+            assertThat(chunk.getText()).contains("Base URL：待定", "认证方式：待定")
+                    .doesNotContain("/api/v1/demo/order/receive");
+        });
+        assertThat(chunks).anySatisfy(chunk -> assertThat(chunk.getMetadata())
+                .containsEntry("section", "接口 1：订单下发")
+                .containsEntry("endpoint", "/api/v1/demo/order/receive"));
+    }
 }
