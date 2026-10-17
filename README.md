@@ -38,7 +38,7 @@ M0 已完成，M1 的数据库、身份和聊天持久化已实现并通过本�
 
 后端监听 `8124`；Vite 将 `/api` 代理至后端。健康接口：`GET /api/health`。前端地址以 Vite 启动日志为准。
 
-首次使用需初始化登录账号。账号建立、添加同事和会话接口见 [docs/AUTH_AND_CHAT.md](docs/AUTH_AND_CHAT.md)。旧的 `.kryo` 文件历史不会自动进入数据库。
+首次启动时，如果 `app_user` 为空，后端自动创建 `admin` 账号，初始密码为 `123456`；登录后请立即在聊天页修改密码。账号管理和会话接口见 [docs/AUTH_AND_CHAT.md](docs/AUTH_AND_CHAT.md)。旧的 `.kryo` 文件历史不会自动进入数据库。
 
 ## Wiki 首次导入
 
@@ -78,7 +78,7 @@ docker compose up -d --build
 
 默认页面地址 `http://127.0.0.1:8080`，数据库宿主机端口 `5433`，避免默认与本机已有 PostgreSQL 冲突。后端在容器内部通过 `db:5432` 连接数据库。首次启动会自动创建 `lishou_agent` 并执行 Flyway。
 
-`pg_data` 保存数据库中的会话与向量，Wiki 通过只读目录挂载。首次使用在私有 `.env` 中临时设置 `LISHOU_BOOTSTRAP_USERNAME` 和 `LISHOU_BOOTSTRAP_PASSWORD`；账号创建后清空这两个值。镜像不会打包真实 Key 或公司资料。修改 `.env` 中数据库用户名/密码不会重置已有数据卷的凭据。
+`pg_data` 保存数据库中的会话与向量，Wiki 通过只读目录挂载。空库启动时自动创建默认账号，投入共享使用前必须修改初始密码。镜像不会打包真实 Key 或公司资料。修改 `.env` 中数据库用户名/密码不会重置已有数据卷的凭据。
 
 Compose 默认只开放本机页面。面向同事部署前仍需验证部署环境的会话和账号流程。不要用 `docker compose down -v` 作为日常重启操作，它会删除数据库与会话数据卷。
 

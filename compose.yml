@@ -32,8 +32,6 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?Set DASHSCOPE_API_KEY in .env}
       CHAT_MODEL: ${CHAT_MODEL:-qwen-plus}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v3}
-      LISHOU_BOOTSTRAP_USERNAME: ${LISHOU_BOOTSTRAP_USERNAME:-}
-      LISHOU_BOOTSTRAP_PASSWORD: ${LISHOU_BOOTSTRAP_PASSWORD:-}
       WIKI_SOURCE_DIR: /app/data/wiki/source
     volumes:
       - ./data/wiki/source:/app/data/wiki/source:ro

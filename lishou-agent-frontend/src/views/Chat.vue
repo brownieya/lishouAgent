@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import ChatWindow from '@/components/ChatWindow.vue'
-import { currentUser, login, logout } from '@/api/auth'
+import { currentUser, login, logout, updateMyPassword } from '@/api/auth'
 import { connectChat, createSession, deleteSession, listMessages, listSessions, renameSession } from '@/api/chat'
 import { generateId } from '@/utils/uuid'
 
@@ -10,6 +10,11 @@ const username = ref('')
 const password = ref('')
 const authError = ref('')
 const busy = ref(false)
+const showPasswordForm = ref(false)
+const newPassword = ref('')
+const confirmPassword = ref('')
+const passwordFeedback = ref('')
+const savingPassword = ref(false)
 const sessions = ref([])
 const chatId = ref(null)
 const messages = ref([])
@@ -52,6 +57,26 @@ async function handleLogout() {
   sessions.value = []
   messages.value = []
   hasMore.value = false
+  showPasswordForm.value = false
+  newPassword.value = ''
+  confirmPassword.value = ''
+  passwordFeedback.value = ''
+}
+
+async function handlePasswordChange() {
+  passwordFeedback.value = ''
+  if (newPassword.value !== confirmPassword.value) {
+    passwordFeedback.value = '两次输入的密码不一致。'
+    return
+  }
+  savingPassword.value = true
+  try {
+    await updateMyPassword(user.value.id, newPassword.value)
+    newPassword.value = ''
+    confirmPassword.value = ''
+    passwordFeedback.value = '密码已更新。'
+  } catch { passwordFeedback.value = '修改失败，请稍后重试。' }
+  finally { savingPassword.value = false }
 }
 
 async function refreshSessions() { sessions.value = await listSessions() }
@@ -172,7 +197,17 @@ async function handleSend(text) {
             <button title="删除" aria-label="删除" @click="handleDelete(session)">×</button>
           </div>
         </div>
-        <div class="sidebar__user"><span>{{ user.username }}</span><button @click="handleLogout">退出</button></div>
+        <form v-if="showPasswordForm" class="password-form" @submit.prevent="handlePasswordChange">
+          <label>新密码<input v-model="newPassword" type="password" autocomplete="new-password" required /></label>
+          <label>确认密码<input v-model="confirmPassword" type="password" autocomplete="new-password" required /></label>
+          <p v-if="passwordFeedback" role="status">{{ passwordFeedback }}</p>
+          <button :disabled="savingPassword" type="submit">保存密码</button>
+        </form>
+        <div class="sidebar__user">
+          <span>{{ user.username }}</span>
+          <button @click="showPasswordForm = !showPasswordForm; passwordFeedback = ''">修改密码</button>
+          <button @click="handleLogout">退出</button>
+        </div>
       </aside>
       <ChatWindow
         title="lishouAgent" :subtitle="chatId ? `公司 Wiki 知识助手 · 会话 ${chatId.slice(0, 8)}` : '公司 Wiki 知识助手'"
@@ -197,6 +232,10 @@ async function handleSend(text) {
 .session.active { background: rgba(255,255,255,.09); }
 .session__title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; border: 0 !important; background: transparent !important; }
 .sidebar__user { border-top: 1px solid rgba(255,255,255,.12); }
+.password-form { display: grid; gap: 8px; padding: 12px 8px; border-top: 1px solid rgba(255,255,255,.12); }
+.password-form label { display: grid; gap: 5px; font-size: 13px; }
+.password-form input { min-width: 0; padding: 7px; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; background: rgba(255,255,255,.08); color: #fff; }
+.password-form p { margin: 0; font-size: 12px; }
 .login { width: min(360px, calc(100vw - 36px)); margin: 0 auto; padding-top: 20vh; display: grid; gap: 18px; }
 .login label { display: grid; gap: 7px; }
 .login input { padding: 11px; border-radius: 8px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.08); color: #fff; }

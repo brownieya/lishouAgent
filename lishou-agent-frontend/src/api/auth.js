@@ -34,3 +34,7 @@ export async function logout() {
 }
 
 export const currentUser = () => apiRequest('/auth/me')
+
+export const updateMyPassword = (id, password) => apiRequest(`/auth/users/${id}`, {
+  method: 'PATCH', body: JSON.stringify({ password }),
+})

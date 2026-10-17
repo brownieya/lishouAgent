@@ -4,28 +4,13 @@
 
 ## 初始化第一个账号
 
-首次启动且 `app_user` 为空时，在启动后端的 PowerShell 会话中显式设置两个环境变量：
-
-```powershell
-$env:LISHOU_BOOTSTRAP_USERNAME = Read-Host '账号名'
-$secret = Read-Host '至少 12 位密码' -AsSecureString
-$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-try { $env:LISHOU_BOOTSTRAP_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
-finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
-mvn spring-boot:run
-```
-
-启动后账号会写入数据库，密码保存为 BCrypt 摘要。后续启动不再需要这两个变量。停止应用后，在同一 PowerShell 会话执行：
-
-```powershell
-Remove-Item Env:LISHOU_BOOTSTRAP_USERNAME,Env:LISHOU_BOOTSTRAP_PASSWORD -ErrorAction SilentlyContinue
-```
-
-账号密码不要写入 Git 跟踪的配置、脚本或命令历史。已有账号不会因再次设置初始化变量而覆盖。
+后端每次启动都会检查 `app_user`。仅当表完全为空时，自动创建账号 `admin`，初始密码为 `123456`，数据库中只保存 BCrypt 摘要；已有账号不会被覆盖，也不会因重启重置密码。首次登录后在聊天页侧栏点击“修改密码”，设置新的非空密码，再把服务开放给其他人。此默认密码公开且固定，不适合长期使用。
 
 ## 添加同事账号
 
-已登录用户可调用 `POST /api/auth/users`，提交 `username`、`displayName`、`password`；密码至少 12 位。第一版用户具有相同的知识维护权限，没有复杂角色管理。页面目前提供登录、退出和会话管理；新增账号暂通过 API 完成。
+已登录用户可调用 `POST /api/auth/users`，提交 `username`、`displayName`、`password`；密码不能为空。`GET /api/auth/users` 列出账号，`GET /api/auth/users/{id}` 查询单个账号。`PATCH /api/auth/users/{id}` 只允许本人修改 `displayName` 和/或 `password`；`DELETE /api/auth/users/{id}` 只允许本人停用账号，并立即退出登录，已有聊天数据保留。最后一个可登录账号不能停用。用户名不可修改，停用账号不能重新登录。
+
+第一版用户具有相同的知识维护权限，没有复杂角色管理。页面提供登录、退出、修改本人密码和会话管理；其他账号管理暂通过 API 完成。写请求需要登录 Cookie 和 CSRF Token。
 
 PowerShell 调用需要复用同一个 Web 会话，并给写请求带上 `X-XSRF-TOKEN`。下面示例登录后调用本地 Wiki 导入；导入会向配置的 Embedding 服务发送 Wiki 文本，应由用户主动执行。
 
