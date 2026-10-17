@@ -1,17 +1,14 @@
 package com.brownie.lishouagent.service;
 
-import com.brownie.lishouagent.chatmemory.FileBasedChatMemoryRepository;
 import com.brownie.lishouagent.model.SourceReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.memory.MessageWindowChatMemory;
-import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -46,58 +43,65 @@ public class CompanyAssistantService {
             使用中文，必要时按步骤说明，并用 [1]、[2] 等引用本轮资料编号。
             """;
     private final ChatClient chatClient;
-    private final ChatMemory memory;
+    private final ChatRepository chats;
     private final VectorStore vectorStore;
     private final ObjectMapper mapper;
     private final int topK;
     private final double threshold;
 
     public CompanyAssistantService(ChatModel chatModel, VectorStore vectorStore,
-            FileBasedChatMemoryRepository repository, ObjectMapper mapper,
+            ChatRepository chats, ObjectMapper mapper,
             @Value("${lishou.rag.top-k:5}") int topK,
             @Value("${lishou.rag.similarity-threshold:0.45}") double threshold) {
         if (topK < 1 || topK > 20 || threshold < 0 || threshold > 1) {
             throw new IllegalArgumentException("Invalid RAG configuration");
         }
         this.chatClient = ChatClient.builder(safeModel(chatModel)).build();
-        this.memory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20).build();
+        this.chats = chats;
         this.vectorStore = vectorStore;
         this.mapper = mapper;
         this.topK = topK;
         this.threshold = threshold;
     }
 
-    public Flux<ServerSentEvent<String>> stream(String message, String chatId) {
+    // 每次发送先存入完整消息档案，再检索、流式回答；完成时保存答案和来源快照。
+    public Flux<ServerSentEvent<String>> stream(String message, UUID userId, UUID sessionId) {
         return Flux.defer(() -> {
-            FileBasedChatMemoryRepository.validateConversationId(chatId);
-            List<Message> history = memory.get(chatId);
-            var search = SearchRequest.builder().query(retrievalQuery(message, history))
-                    .topK(topK).similarityThreshold(threshold);
-            String endpoint = endpointForQuestion(message, history);
-            if (endpoint != null) {
-                search.filterExpression(new FilterExpressionBuilder().eq("endpoint", endpoint).build());
-            }
-            List<Document> documents = vectorStore.similaritySearch(search.build());
-            if (documents == null || documents.isEmpty()) {
-                memory.add(chatId, List.of(new UserMessage(message), new AssistantMessage(NO_KNOWLEDGE)));
-                return Flux.just(event("sources", "[]"), event("answer", NO_KNOWLEDGE), event("done", ""));
-            }
-            String sources = sourcesJson(documents);
+            List<Message> history = chats.modelHistory(userId, sessionId);
+            UUID answerId = chats.startTurn(userId, sessionId, message);
             StringBuilder answer = new StringBuilder();
-            Flux<ServerSentEvent<String>> tokens = chatClient.prompt()
-                    .system(SYSTEM + "\n本轮知识资料：\n" + knowledgeContext(documents))
-                    .messages(history).user(message).stream().content()
-                    .filter(token -> !token.isEmpty())
-                    .map(token -> {
-                        answer.append(token);
-                        return event("answer", token);
+            return Flux.defer(() -> {
+                var search = SearchRequest.builder().query(retrievalQuery(message, history))
+                        .topK(topK).similarityThreshold(threshold);
+                String endpoint = endpointForQuestion(message, history);
+                if (endpoint != null) {
+                    search.filterExpression(new FilterExpressionBuilder().eq("endpoint", endpoint).build());
+                }
+                List<Document> documents = vectorStore.similaritySearch(search.build());
+                if (documents == null || documents.isEmpty()) {
+                    chats.complete(answerId, NO_KNOWLEDGE, List.of());
+                    return Flux.just(event("sources", "[]"), event("answer", NO_KNOWLEDGE), event("done", ""));
+                }
+                String sources = sourcesJson(documents);
+                Flux<ServerSentEvent<String>> tokens = chatClient.prompt()
+                        .system(SYSTEM + "\n本轮知识资料：\n" + knowledgeContext(documents))
+                        .messages(history).user(message).stream().content()
+                        .filter(token -> !token.isEmpty())
+                        .map(token -> {
+                            answer.append(token);
+                            return event("answer", token);
+                        });
+                return Flux.concat(Flux.just(event("sources", sources)), tokens, Flux.defer(() -> {
+                    if (answer.toString().isBlank()) return Flux.error(new IllegalStateException("Empty model answer"));
+                    chats.complete(answerId, answer.toString(), documents);
+                    return Flux.just(event("done", ""));
+                }));
+            }).doOnCancel(() -> chats.stop(answerId, answer.toString(), "INTERRUPTED"))
+                    .onErrorResume(exception -> {
+                        chats.stop(answerId, answer.toString(), "FAILED");
+                        log.warn("Company chat failed ({})", exception.getClass().getSimpleName());
+                        return Flux.just(event("error", "回答生成失败，请检查知识库、数据库或模型配置后重试。"));
                     });
-            return Flux.concat(Flux.just(event("sources", sources)), tokens, Flux.defer(() -> {
-                if (answer.toString().isBlank()) return Flux.error(new IllegalStateException("Empty model answer"));
-                // Store only question/answer, never the injected Wiki context. Cancelled/failed answers are not complete.
-                memory.add(chatId, List.of(new UserMessage(message), new AssistantMessage(answer.toString())));
-                return Flux.just(event("done", ""));
-            }));
         }).onErrorResume(exception -> {
             log.warn("Company chat failed ({})", exception.getClass().getSimpleName());
             return Flux.just(event("error", "回答生成失败，请检查知识库、数据库或模型配置后重试。"));

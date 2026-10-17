@@ -1,15 +1,15 @@
 # lishouAgent 数据库初始化、结构与运维说明
 
-更新时间：2026-10-04（Asia/Shanghai）。
+更新时间：2026-10-17（Asia/Shanghai）。
 
-本文记录当前迁移基线的数据库设计与初始化方法。**本次生成 SQL 和操作说明，没有连接原项目数据库，没有执行建库、建表、导入、删除、备份或恢复操作。当前环境没有可用的 Docker / psql，真实数据库验证待完成。**
+本文记录数据库设计与初始化方法。2026-10-17 已在本机 PostgreSQL 16.15 验证现有库和随机命名的空测试库：Flyway V1 成功、11 张业务/向量表、pgvector 0.8.6、`vector(1024)`。空测试库验证后已删除；Docker/PG17 和备份恢复尚未验证。
 
 ## 1. 数据库与功能实现边界
 
 | 项目 | 当前约定 |
 | --- | --- |
 | 数据库名称 | `lishou_agent`；与源项目数据库分开 |
-| 数据库类型 | PostgreSQL 17 |
+| 数据库类型 | 本机 PostgreSQL 16.15 已验证；Compose 使用 PostgreSQL 17 镜像，尚未验证 |
 | 向量扩展 | `pgvector`，扩展名称 `vector` |
 | Docker 镜像 | `pgvector/pgvector:pg17`，固定 PostgreSQL 主版本；正式部署可进一步固定镜像摘要 |
 | schema | `public` |
@@ -20,7 +20,7 @@
 
 PostgreSQL 同时存储普通业务表与向量表，不需要再运行一个独立向量服务。原始 Wiki Markdown 和图片存放在文件目录，数据库保存切片、路径与关联信息。
 
-**当前迁移基线使用 `vector_store` 进行 Wiki 检索；会话仍使用迁移后的本地文件记忆。** 其他表是后续数据库会话、登录、文档版本、页面编辑与后台任务的基础模型；只有表结构，尚未实现对应接口和业务流程。表内没有预置用户或真实内部知识数据。
+当前使用 `vector_store` 进行 Wiki 检索；`app_user`、`chat_session`、`chat_message` 和 `chat_message_source` 已接入登录和聊天历史。文档版本、切片编辑与后台任务相关表仍只有结构，业务流程尚未实现。数据库不会预置账号。
 
 迁移的 Wiki 原文与图片位于 `data/wiki/source/`，属于私有数据，不提交到公开代码仓库。迁移这些文件不等于已经自动向量化入库；应用启动不重新导入全部文档，按 README 的导入入口进行处理。
 
@@ -63,6 +63,8 @@ Flyway 能创建表，但不会创建需要连接的数据库。`CREATE DATABASE
 | `WIKI_SOURCE_DIR` | Wiki 原文与图片目录 |
 
 复用模型 API Key 不意味着复用原项目数据库。请确保 JDBC 地址使用新的 `lishou_agent`。Compose 的 `.env` 由 Docker 读取，Java 本机启动不会自动加载它；本机启动时还需要正确的私有 local 配置或系统环境变量。
+
+本机私有 `config/application-local.yml` 如果直接写入固定 JDBC URL，`DB_URL` 环境变量不会覆盖该值。临时使用其他数据库核验时，可用 Spring 启动参数 `--spring.datasource.url=jdbc:postgresql://localhost:5432/测试库名`，结束后务必恢复正常目标库。
 
 ## 4. 推荐方法：Compose 启动数据库，Flyway 建表
 
@@ -211,7 +213,7 @@ SELECT count(*) AS indexed_chunks FROM public.vector_store;
 
 ## 9. 持久化与模型变更
 
-Compose 的 `pg_data` 卷挂载 PostgreSQL 17 的 `/var/lib/postgresql/data`，`chat_memory` 卷保存当前过渡阶段的文件记忆；Wiki 原文与图片通过 `./data/wiki/source` 挂载到后端。普通容器重建继续使用同一卷可保留数据，`docker compose down -v` 会删除命名卷，不应作为常规重启命令。
+Compose 的 `pg_data` 卷挂载 PostgreSQL 17 的 `/var/lib/postgresql/data`，保存数据库会话和向量；Wiki 原文与图片通过 `./data/wiki/source` 挂载到后端。普通容器重建继续使用同一卷可保留数据，`docker compose down -v` 会删除命名卷，不应作为常规重启命令。
 
 当前 Wiki 挂载为只读，适用于迁移基线读取和导入。后续上传页面需要新增可写的上传目录和独立存储配置，不能把只读挂载当作已经完成文件管理。
 

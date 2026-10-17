@@ -29,8 +29,6 @@ server:
 lishou:
   knowledge:
     source-dir: ${WIKI_SOURCE_DIR:./data/wiki/source}
-  chat-memory:
-    directory: ${CHAT_MEMORY_DIR:./data/chat-memory}
   rag:
     top-k: 5
     similarity-threshold: 0.45

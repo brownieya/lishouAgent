@@ -1,11 +1,15 @@
 package com.brownie.lishouagent.controller;
 
 import com.brownie.lishouagent.service.CompanyAssistantService;
+import com.brownie.lishouagent.service.AccountService;
+import com.brownie.lishouagent.service.ChatRepository;
 import com.brownie.lishouagent.service.KnowledgeImportService;
 import com.brownie.lishouagent.model.ImportResult;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.test.context.ActiveProfiles;
@@ -27,8 +31,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ActiveProfiles("test")
 @WebMvcTest({ChatController.class, KnowledgeController.class, HealthController.class})
+@AutoConfigureMockMvc(addFilters = false)
 class ApiControllerTest {
     private static final String CHAT_ID = "8598e45b-09a0-42de-b6c4-c140739a18f8";
+    private static final UUID USER_ID = UUID.fromString("7598e45b-09a0-42de-b6c4-c140739a18f8");
 
     @Autowired
     private MockMvc mvc;
@@ -38,6 +44,12 @@ class ApiControllerTest {
 
     @MockitoBean
     private KnowledgeImportService importer;
+
+    @MockitoBean
+    private AccountService accounts;
+
+    @MockitoBean
+    private ChatRepository chats;
 
     @Test
     void healthIdentifiesTheMigratedApplication() throws Exception {
@@ -65,11 +77,13 @@ class ApiControllerTest {
 
     @Test
     void chatEmitsNamedSseEvents() throws Exception {
-        when(assistant.stream("公司有哪些项目？", CHAT_ID)).thenReturn(Flux.just(
+        when(accounts.idFor("test-user")).thenReturn(USER_ID);
+        when(assistant.stream("公司有哪些项目？", USER_ID, UUID.fromString(CHAT_ID))).thenReturn(Flux.just(
                 event("sources", "[]"), event("answer", "现有资料不足。"), event("done", "{}")));
 
         var result = mvc.perform(post("/api/ai/chat/stream")
                         .contentType(MediaType.APPLICATION_JSON)
+                        .principal(() -> "test-user")
                         .content("{\"message\":\"公司有哪些项目？\",\"chatId\":\"" + CHAT_ID + "\"}"))
                 .andExpect(request().asyncStarted()).andReturn();
         mvc.perform(asyncDispatch(result))
@@ -78,7 +92,7 @@ class ApiControllerTest {
                 .andExpect(content().string(containsString("event:sources")))
                 .andExpect(content().string(containsString("event:answer")))
                 .andExpect(content().string(containsString("event:done")));
-        verify(assistant).stream("公司有哪些项目？", CHAT_ID);
+        verify(assistant).stream("公司有哪些项目？", USER_ID, UUID.fromString(CHAT_ID));
     }
 
     @Test

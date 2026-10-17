@@ -12,6 +12,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -48,6 +49,9 @@ class LishouAgentApplicationTest {
     @MockitoBean
     private JdbcTemplate jdbcTemplate;
 
+    @MockitoBean
+    private PlatformTransactionManager transactionManager;
+
     @Test
     void productionComponentsCanBeAssembledWithoutImportingWikiOrCallingExternalServices() {
         assertThat(context.getBean(CompanyAssistantService.class)).isNotNull();
@@ -56,6 +60,8 @@ class LishouAgentApplicationTest {
         assertThat(context.getBean(VectorStore.class)).isNotNull();
         verify(chatModel, never()).stream(any(Prompt.class));
         verify(chatModel, never()).call(any(Prompt.class));
-        verifyNoInteractions(embeddingModel, jdbcTemplate);
+        verifyNoInteractions(embeddingModel);
+        verify(jdbcTemplate).update("UPDATE chat_message SET status='INTERRUPTED',updated_at=now(),completed_at=now() "
+                + "WHERE status IN ('PENDING','GENERATING')");
     }
 }

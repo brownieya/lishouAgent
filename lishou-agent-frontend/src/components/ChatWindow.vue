@@ -8,6 +8,7 @@ const props = defineProps({
   subtitle: { type: String, default: '' },
   aiIcon: { type: String, default: 'bot' },
   messages: { type: Array, required: true },
+  hasMore: { type: Boolean, default: false },
   pending: { type: Boolean, default: false },
   placeholder: { type: String, default: '输入消息，按 Enter 发送…' },
   emptyTitle: { type: String, default: '开始一段新的对话' },
@@ -16,11 +17,12 @@ const props = defineProps({
   statusState: { type: String, default: 'idle' }, // idle | connecting | streaming | error
 })
 
-const emit = defineEmits(['send', 'new-chat', 'stop'])
+const emit = defineEmits(['send', 'new-chat', 'stop', 'load-more'])
 
 const draft = ref('')
 const scrollRef = ref(null)
 const textareaRef = ref(null)
+let previousFirstId = null
 
 function scrollToBottom() {
   nextTick(() => {
@@ -31,7 +33,19 @@ function scrollToBottom() {
 
 watch(
   () => props.messages,
-  () => scrollToBottom(),
+  (rows) => {
+    const firstId = rows[0]?.id
+    const element = scrollRef.value
+    const oldHeight = element?.scrollHeight || 0
+    const oldTop = element?.scrollTop || 0
+    const prepended = previousFirstId && firstId !== previousFirstId
+      && rows.some((row) => row.id === previousFirstId)
+    nextTick(() => {
+      if (!element) return
+      element.scrollTop = prepended ? oldTop + element.scrollHeight - oldHeight : element.scrollHeight
+      previousFirstId = firstId
+    })
+  },
   { deep: true },
 )
 
@@ -87,6 +101,7 @@ defineExpose({ scrollToBottom })
       </header>
 
       <div ref="scrollRef" class="chat__scroll">
+        <button v-if="hasMore" class="chat__older" type="button" @click="emit('load-more')">加载更早消息</button>
         <div v-if="messages.length === 0" class="chat__empty">
           <span class="chat__empty-icon">
             <AppIcon :name="aiIcon" :size="26" />
@@ -133,7 +148,7 @@ defineExpose({ scrollToBottom })
           <AppIcon name="send" :size="17" />
         </button>
       </form>
-      <p class="chat__hint">Enter 发送 · Shift + Enter 换行 · 刷新页面将开启新会话</p>
+      <p class="chat__hint">Enter 发送 · Shift + Enter 换行 · 会话自动保存</p>
     </div>
   </div>
 </template>
@@ -294,6 +309,7 @@ defineExpose({ scrollToBottom })
   padding: var(--space-5);
   scroll-behavior: smooth;
 }
+.chat__older { display: block; margin: 0 auto var(--space-4); border: 0; background: transparent; color: var(--accent-1); cursor: pointer; }
 
 .chat__list {
   display: flex;

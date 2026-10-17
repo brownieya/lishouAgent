@@ -1,13 +1,11 @@
 package com.brownie.lishouagent.service;
 
-import com.brownie.lishouagent.chatmemory.FileBasedChatMemoryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -29,37 +27,37 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CompanyAssistantServiceTest {
-    private static final String CHAT_ID = "6ef01175-9ec2-42d0-ae9e-85ecdd1bf648";
-    @TempDir
-    Path directory;
+    private static final UUID CHAT_ID = UUID.fromString("6ef01175-9ec2-42d0-ae9e-85ecdd1bf648");
+    private static final UUID USER_ID = UUID.fromString("7ef01175-9ec2-42d0-ae9e-85ecdd1bf648");
+    private static final UUID ANSWER_ID = UUID.fromString("8ef01175-9ec2-42d0-ae9e-85ecdd1bf648");
 
     @Test
     void noKnowledgeEmitsExplicitCompletionWithoutCallingChatModel() {
         var model = model();
         var store = mock(VectorStore.class);
-        var memory = new FileBasedChatMemoryRepository(directory);
+        var chats = repository();
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 5, .45);
+        var assistant = new CompanyAssistantService(model, store, chats, new ObjectMapper(), 5, .45);
 
-        var events = assistant.stream("某项目如何部署？", CHAT_ID).collectList().block(Duration.ofSeconds(10));
+        var events = assistant.stream("某项目如何部署？", USER_ID, CHAT_ID).collectList().block(Duration.ofSeconds(10));
         assertThat(events).extracting(event -> event.event()).containsExactly("sources", "answer", "done");
         assertThat(events.get(0).data()).isEqualTo("[]");
         assertThat(events.get(1).data()).contains("没有找到足够的相关资料");
         verify(model, never()).stream(any(Prompt.class));
         verify(model, never()).call(any(Prompt.class));
-        assertThat(memory.findByConversationId(CHAT_ID)).hasSize(2);
+        verify(chats).complete(ANSWER_ID, events.get(1).data(), List.of());
     }
 
     @Test
     void streamsSourcesAndAnswerThenPersistsOnlyTheCompletedConversation() throws Exception {
         var model = model();
         var store = mock(VectorStore.class);
-        var memory = new FileBasedChatMemoryRepository(directory);
+        var chats = repository();
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(document()));
         when(model.stream(any(Prompt.class))).thenReturn(Flux.just(response("先提交申请。"), response("[1]")));
-        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 4, .6);
+        var assistant = new CompanyAssistantService(model, store, chats, new ObjectMapper(), 4, .6);
 
-        var events = assistant.stream("怎么部署？", CHAT_ID).collectList().block(Duration.ofSeconds(10));
+        var events = assistant.stream("怎么部署？", USER_ID, CHAT_ID).collectList().block(Duration.ofSeconds(10));
         assertThat(events).extracting(event -> event.event()).containsExactly("sources", "answer", "answer", "done");
         var sources = new ObjectMapper().readTree(events.get(0).data());
         assertThat(sources.get(0).get("title").asText()).isEqualTo("发布流程");
@@ -75,52 +73,51 @@ class CompanyAssistantServiceTest {
         assertThat(search.getValue().getTopK()).isEqualTo(4);
         assertThat(search.getValue().getSimilarityThreshold()).isEqualTo(.6);
 
-        assertThat(new FileBasedChatMemoryRepository(directory).findByConversationId(CHAT_ID))
-                .extracting(message -> message.getText()).containsExactly("怎么部署？", "先提交申请。[1]");
+        verify(chats).complete(ANSWER_ID, "先提交申请。[1]", List.of(document()));
     }
 
     @Test
     void modelFailureEmitsErrorWithoutDoneAndDoesNotPersistPartialAnswer() {
         var model = model();
         var store = mock(VectorStore.class);
-        var memory = new FileBasedChatMemoryRepository(directory);
+        var chats = repository();
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(document()));
         when(model.stream(any(Prompt.class))).thenReturn(Flux.concat(
                 Flux.just(response("未完成的回答")), Flux.error(new IllegalStateException("credential-secret"))));
-        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 5, .45);
+        var assistant = new CompanyAssistantService(model, store, chats, new ObjectMapper(), 5, .45);
 
-        var events = assistant.stream("怎么部署？", CHAT_ID).collectList().block(Duration.ofSeconds(10));
+        var events = assistant.stream("怎么部署？", USER_ID, CHAT_ID).collectList().block(Duration.ofSeconds(10));
         assertThat(events).extracting(event -> event.event()).containsExactly("sources", "answer", "error");
         assertThat(events.getLast().data()).doesNotContain("credential-secret");
-        assertThat(memory.findByConversationId(CHAT_ID)).isEmpty();
+        verify(chats).stop(ANSWER_ID, "未完成的回答", "FAILED");
     }
 
     @Test
     void cancelledStreamDoesNotSaveAnIncompleteConversation() {
         var model = model();
         var store = mock(VectorStore.class);
-        var memory = new FileBasedChatMemoryRepository(directory);
+        var chats = repository();
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(document()));
         when(model.stream(any(Prompt.class))).thenReturn(Flux.concat(Flux.just(response("第一段回答")), Flux.never()));
-        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 5, .45);
+        var assistant = new CompanyAssistantService(model, store, chats, new ObjectMapper(), 5, .45);
 
-        var events = assistant.stream("怎么部署？", CHAT_ID).take(2).collectList().block(Duration.ofSeconds(10));
+        var events = assistant.stream("怎么部署？", USER_ID, CHAT_ID).take(2).collectList().block(Duration.ofSeconds(10));
         assertThat(events).extracting(event -> event.event()).containsExactly("sources", "answer");
-        assertThat(memory.findByConversationId(CHAT_ID)).isEmpty();
+        verify(chats).stop(ANSWER_ID, "第一段回答", "INTERRUPTED");
     }
 
     @Test
     void interfaceFollowUpSearchesOnlyTheEndpointNamedInThePreviousQuestion() {
         var model = model();
         var store = mock(VectorStore.class);
-        var memory = new FileBasedChatMemoryRepository(directory);
-        memory.saveAll(CHAT_ID, List.of(
+        var chats = repository();
+        when(chats.modelHistory(USER_ID, CHAT_ID)).thenReturn(List.of(
                 new UserMessage("/api/v1/demo/order/receive 是哪个项目的？"),
                 new AssistantMessage("订单下发接口。")));
         when(store.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-        var assistant = new CompanyAssistantService(model, store, memory, new ObjectMapper(), 5, .45);
+        var assistant = new CompanyAssistantService(model, store, chats, new ObjectMapper(), 5, .45);
 
-        assistant.stream("这个接口的请求参数是什么？", CHAT_ID).collectList().block(Duration.ofSeconds(10));
+        assistant.stream("这个接口的请求参数是什么？", USER_ID, CHAT_ID).collectList().block(Duration.ofSeconds(10));
 
         ArgumentCaptor<SearchRequest> search = ArgumentCaptor.forClass(SearchRequest.class);
         verify(store).similaritySearch(search.capture());
@@ -134,6 +131,13 @@ class CompanyAssistantServiceTest {
         var model = mock(ChatModel.class);
         when(model.getDefaultOptions()).thenReturn(ChatOptions.builder().build());
         return model;
+    }
+
+    private static ChatRepository repository() {
+        var chats = mock(ChatRepository.class);
+        when(chats.modelHistory(USER_ID, CHAT_ID)).thenReturn(List.of());
+        when(chats.startTurn(any(UUID.class), any(UUID.class), any(String.class))).thenReturn(ANSWER_ID);
+        return chats;
     }
 
     private static ChatResponse response(String text) {

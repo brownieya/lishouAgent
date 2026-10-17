@@ -4,16 +4,16 @@
 
 代码仓库：<https://github.com/brownieya/lishouAgent>。
 
-## 当前迁移基线
+## 当前进度
 
 - 公司知识问答页面、流式回答、中断生成、引用来源展示。
 - PostgreSQL 向量检索与多轮上下文；未检索到依据时明确说明资料不足。
 - 主动导入本地 Markdown Wiki，切片后向量化；应用启动不会自动导入资料。
-- 临时文件会话记忆，保留原项目已具备的上下文能力。
+- 本地账号登录、会话归属校验、数据库消息与引用快照；页面可切换、重命名、删除会话并分页查看历史。
 - 通用、本地、生产三份配置，私有本地配置与公开代码隔离。
 - Flyway 初始化 SQL、数据库说明、Docker Compose 部署模板。
 
-这次交付是开发计划的 M0 迁移基线。数据库会话历史、用户身份、知识库管理页面、上传 ZIP、人工编辑切片、完整文档版本/增量同步、图片理解和 Thinking 开关仍需继续开发。预留表结构不代表这些功能已经实现。
+M0 已完成，M1 的数据库、身份和聊天持久化已实现并通过本机验证；文件存储与后台任务基础仍待开发。知识库管理页面、上传 ZIP、人工编辑切片、完整文档版本/增量同步、图片理解和 Thinking 开关尚未实现。预留表结构不代表这些功能已经实现。
 
 详细需求、阶段任务、验收标准和每次进度记录见 [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)。数据库名称、表结构、SQL 使用和备份说明见 [docs/DATABASE_SETUP.md](docs/DATABASE_SETUP.md)。
 
@@ -38,15 +38,13 @@
 
 后端监听 `8124`；Vite 将 `/api` 代理至后端。健康接口：`GET /api/health`。前端地址以 Vite 启动日志为准。
 
+首次使用需初始化登录账号。账号建立、添加同事和会话接口见 [docs/AUTH_AND_CHAT.md](docs/AUTH_AND_CHAT.md)。旧的 `.kryo` 文件历史不会自动进入数据库。
+
 ## Wiki 首次导入
 
 本机迁移已将原 Wiki 与图片复制到 `data/wiki/source/`。从 GitHub 克隆不会带有这些私有文件，需要通过内部渠道复制到同一路径。目录层级和 Markdown 图片引用必须一起保留。
 
-启动成功后，主动导入：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri 'http://localhost:8124/api/knowledge/import/local'
-```
+启动成功并登录后，可主动调用 `POST /api/knowledge/import/local`；此写接口需要登录 Cookie 和 CSRF Token。浏览器聊天页不会在启动时触发导入。
 
 该操作调用配置的 Embedding 服务，会产生模型费用并把文本发送给该服务；构建和启动不会自动执行。它是基线导入接口，按来源文件替换向量，失败时通过数据库事务保留旧记录；空白 Markdown 会拒绝本次导入，避免静默保留旧内容。尚未提供完整任务管理、删除同步和人工修改保护。文档删除/大幅重写的增量处理将在 M2/M3 实现。
 
@@ -68,6 +66,8 @@ Invoke-RestMethod -Method Post -Uri 'http://localhost:8124/api/knowledge/import/
 
 环境变量：`DASHSCOPE_API_KEY`、`DB_USERNAME`、`DB_PASSWORD`、`DB_HOST`、`DB_PORT`、`DB_NAME`；可用 `DB_URL` 覆盖完整 JDBC URL。`CHAT_MODEL` 默认 `qwen-plus`，`EMBEDDING_MODEL` 默认 `text-embedding-v3`。向量固定 1024 维，切换 Embedding 模型需确认维度与兼容性，并重新索引。
 
+如果私有 `config/application-local.yml` 直接写了固定的 JDBC URL，该外部配置会覆盖通用环境变量映射；需要改动私有配置，或用 `--spring.datasource.url=...` 启动参数临时指定数据库。不要在命令行填写密码。
+
 ## Docker Compose
 
 ```powershell
@@ -78,9 +78,9 @@ docker compose up -d --build
 
 默认页面地址 `http://127.0.0.1:8080`，数据库宿主机端口 `5433`，避免默认与本机已有 PostgreSQL 冲突。后端在容器内部通过 `db:5432` 连接数据库。首次启动会自动创建 `lishou_agent` 并执行 Flyway。
 
-`pg_data` 保存数据库，`chat_memory` 保存当前临时会话记忆，Wiki 通过只读目录挂载。镜像不会打包真实 Key 或公司资料。修改 `.env` 中数据库用户名/密码不会重置已有数据卷的凭据。
+`pg_data` 保存数据库中的会话与向量，Wiki 通过只读目录挂载。首次使用在私有 `.env` 中临时设置 `LISHOU_BOOTSTRAP_USERNAME` 和 `LISHOU_BOOTSTRAP_PASSWORD`；账号创建后清空这两个值。镜像不会打包真实 Key 或公司资料。修改 `.env` 中数据库用户名/密码不会重置已有数据卷的凭据。
 
-此基线没有登录和权限功能；Compose 默认只开放本机页面，面向同事部署前需完成 M1 身份与访问控制。不要用 `docker compose down -v` 作为日常重启操作，它会删除数据库与会话数据卷。
+Compose 默认只开放本机页面。面向同事部署前仍需验证部署环境的会话和账号流程。不要用 `docker compose down -v` 作为日常重启操作，它会删除数据库与会话数据卷。
 
 ## 开发验证
 
@@ -92,4 +92,4 @@ npm ci
 npm run build
 ```
 
-单元测试不连接真实模型、不导入私有 Wiki、不操作真实数据库。实际数据库迁移、Docker 启动和真实问答验收需要另行验证，结果写入开发计划。
+默认单元测试不连接真实模型、不导入私有 Wiki、不操作真实数据库。设置 `LISHOU_DB_INTEGRATION=true` 可显式运行事务回滚的本地数据库测试。Docker 启动和真实问答验收仍需单独验证，结果写入开发计划。

@@ -42,7 +42,7 @@ export function createSSEParser(onEvent) {
 }
 
 /** POST SSE transport; only an explicit `done` event means successful completion. */
-export function createSSEConnection(url, body, handlers = {}) {
+export function createSSEConnection(url, body, handlers = {}, requestHeaders = () => ({})) {
   const controller = new AbortController()
   let cancelled = false
   let completed = false
@@ -50,9 +50,11 @@ export function createSSEConnection(url, body, handlers = {}) {
 
   const finished = (async () => {
     try {
+      const providedHeaders = requestHeaders()
+      const extraHeaders = providedHeaders instanceof Promise ? await providedHeaders : providedHeaders
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...extraHeaders },
         body: JSON.stringify(body),
         signal: controller.signal,
       })
