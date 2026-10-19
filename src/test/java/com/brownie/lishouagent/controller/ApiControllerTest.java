@@ -4,6 +4,7 @@ import com.brownie.lishouagent.service.CompanyAssistantService;
 import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.ChatRepository;
 import com.brownie.lishouagent.service.KnowledgeImportService;
+import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.model.ImportResult;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private KnowledgeImportService importer;
+
+    @MockitoBean
+    private IngestTaskService tasks;
 
     @MockitoBean
     private AccountService accounts;
@@ -104,6 +108,21 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.chunkCount").value(8))
                 .andExpect(jsonPath("$.importedCount").value(8));
         verify(importer).importLocal();
+    }
+
+    @Test
+    void asynchronousImportReturnsTaskWithoutRunningSynchronousEndpoint() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(accounts.idFor("test-user")).thenReturn(USER_ID);
+        when(tasks.startLocalImport(USER_ID)).thenReturn(new IngestTaskService.Task(id, "IMPORT", "PENDING",
+                "QUEUED", 0, 0, 1, null, null));
+
+        mvc.perform(post("/api/knowledge/import/local/tasks").principal(() -> "test-user"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        verify(tasks).startLocalImport(USER_ID);
+        verifyNoInteractions(importer);
     }
 
     @Test

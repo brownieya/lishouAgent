@@ -29,6 +29,7 @@ server:
 lishou:
   knowledge:
     source-dir: ${WIKI_SOURCE_DIR:./data/wiki/source}
+    storage-dir: ${WIKI_STORAGE_DIR:./data/wiki/storage}
   rag:
     top-k: 5
     similarity-threshold: 0.45

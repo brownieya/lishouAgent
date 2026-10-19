@@ -1,8 +1,8 @@
 # lishouAgent 数据库初始化、结构与运维说明
 
-更新时间：2026-10-17（Asia/Shanghai）。
+更新时间：2026-10-19（Asia/Shanghai）。
 
-本文记录数据库设计与初始化方法。2026-10-17 已在本机 PostgreSQL 16.15 验证现有库和随机命名的空测试库：Flyway V1 成功、11 张业务/向量表、pgvector 0.8.6、`vector(1024)`。空测试库验证后已删除；Docker/PG17 和备份恢复尚未验证。
+本文记录数据库设计与初始化方法。2026-10-17 已在本机 PostgreSQL 16.15 验证现有库和随机命名的空测试库：Flyway V1 成功、11 张业务/向量表、pgvector 0.8.6、`vector(1024)`。空测试库验证后已删除；2026-10-19 用户反馈 PostgreSQL 服务重启后账号、会话、消息和向量数据保留。Docker/PG17 和备份恢复尚未验证。
 
 ## 1. 数据库与功能实现边界
 
@@ -20,7 +20,7 @@
 
 PostgreSQL 同时存储普通业务表与向量表，不需要再运行一个独立向量服务。原始 Wiki Markdown 和图片存放在文件目录，数据库保存切片、路径与关联信息。
 
-当前使用 `vector_store` 进行 Wiki 检索；`app_user`、`chat_session`、`chat_message` 和 `chat_message_source` 已接入登录和聊天历史。文档版本、切片编辑与后台任务相关表仍只有结构，业务流程尚未实现。数据库不会预置账号。
+当前使用 `vector_store` 进行 Wiki 检索；`app_user`、`chat_session`、`chat_message` 和 `chat_message_source` 已接入登录和聊天历史。`ingest_task` 已用于显式本地导入后台任务；文档版本和切片编辑相关表仍只有结构。Flyway 不预置账号，后端在空 `app_user` 表启动时创建默认账号。
 
 迁移的 Wiki 原文与图片位于 `data/wiki/source/`，属于私有数据，不提交到公开代码仓库。迁移这些文件不等于已经自动向量化入库；应用启动不重新导入全部文档，按 README 的导入入口进行处理。
 
@@ -160,7 +160,7 @@ GRANT USAGE, CREATE ON SCHEMA public TO lishou_agent;
 | `knowledge_chunk` | 稳定切片键、章节、顺序、生效修订、状态、lock_version | 后续切片维护与并发编辑保护 |
 | `knowledge_chunk_revision` | 原始正文、当前正文、人工编辑标记、模型、向量记录及发布状态 | 后续切片编辑与重新向量化 |
 | `vector_store` | `id uuid`、`content text`、`metadata jsonb`、`embedding vector(1024)` | 当前 Spring AI 文档检索 |
-| `ingest_task` | 导入／重索引类型、阶段、进度、状态、失败原因与尝试次数 | 后续可重试任务和重启中断处理 |
+| `ingest_task` | 导入／重索引类型、阶段、进度、状态、失败原因与尝试次数 | 当前本地导入任务记录、手动重试和重启中断处理；其他类型待开发 |
 
 主要关系：用户 → 会话 → 消息 → 引用；文档 → 版本 → 图片；文档 → 稳定切片 → 修订 → 向量。生效文档版本和切片修订的复合外键确保指针指向其自身的版本，允许在同一事务内切换生效指针。引用关联在硬删除来源时置空，标题、章节和正文快照保留。
 
