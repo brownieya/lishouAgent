@@ -5,6 +5,7 @@ import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.ChatRepository;
 import com.brownie.lishouagent.service.KnowledgeImportService;
 import com.brownie.lishouagent.service.IngestTaskService;
+import com.brownie.lishouagent.service.KnowledgeUploadService;
 import com.brownie.lishouagent.model.ImportResult;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -54,6 +57,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private ChatRepository chats;
+
+    @MockitoBean
+    private KnowledgeUploadService uploads;
 
     @Test
     void healthIdentifiesTheMigratedApplication() throws Exception {
@@ -132,6 +138,23 @@ class ApiControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("操作失败，请检查数据库、模型配置和知识目录后重试。"));
         verify(importer).importLocal();
+    }
+
+    @Test
+    void uploadReturnsStoredManifestWithoutStartingImport() throws Exception {
+        UUID id = UUID.randomUUID();
+        var file = new MockMultipartFile("file", "guide.md", "text/markdown",
+                "# 使用说明".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(accounts.idFor("test-user")).thenReturn(USER_ID);
+        when(uploads.upload(file, USER_ID)).thenReturn(new KnowledgeUploadService.Upload(id, "guide.md", "MARKDOWN",
+                UUID.randomUUID().toString(), java.util.List.of()));
+
+        mvc.perform(multipart("/api/knowledge/uploads").file(file).principal(() -> "test-user"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.format").value("MARKDOWN"));
+        verify(uploads).upload(file, USER_ID);
+        verifyNoInteractions(importer, tasks);
     }
 
     private static ServerSentEvent<String> event(String name, String data) {

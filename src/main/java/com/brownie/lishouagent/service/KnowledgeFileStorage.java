@@ -61,6 +61,12 @@ public class KnowledgeFileStorage {
         return file;
     }
 
+    // 上传流程回滚时调用：仅删除服务生成的 UUID 文件，不接受客户端路径。
+    public void delete(String key) throws IOException {
+        UUID.fromString(key);
+        Files.deleteIfExists(directory.resolve(key));
+    }
+
     private static MessageDigest sha256() {
         try {
             return MessageDigest.getInstance("SHA-256");

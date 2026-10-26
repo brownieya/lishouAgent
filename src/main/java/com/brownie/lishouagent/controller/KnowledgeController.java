@@ -3,6 +3,7 @@ package com.brownie.lishouagent.controller;
 import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.service.KnowledgeImportService;
+import com.brownie.lishouagent.service.KnowledgeUploadService;
 import java.security.Principal;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -11,7 +12,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/knowledge")
@@ -19,11 +22,14 @@ public class KnowledgeController {
     private final KnowledgeImportService importer;
     private final IngestTaskService tasks;
     private final AccountService accounts;
+    private final KnowledgeUploadService uploads;
 
-    public KnowledgeController(KnowledgeImportService importer, IngestTaskService tasks, AccountService accounts) {
+    public KnowledgeController(KnowledgeImportService importer, IngestTaskService tasks, AccountService accounts,
+            KnowledgeUploadService uploads) {
         this.importer = importer;
         this.tasks = tasks;
         this.accounts = accounts;
+        this.uploads = uploads;
     }
 
     @PostMapping("/import/local")
@@ -46,5 +52,17 @@ public class KnowledgeController {
     @PostMapping("/tasks/{id}/retry")
     public ResponseEntity<IngestTaskService.Task> retry(@PathVariable UUID id) {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(tasks.retryLocalImport(id));
+    }
+
+    // 用户上传 Markdown/ZIP 时调用：仅保存并登记文件，解析与向量发布由后续任务完成。
+    @PostMapping(value = "/uploads", consumes = "multipart/form-data")
+    public ResponseEntity<KnowledgeUploadService.Upload> upload(@RequestPart("file") MultipartFile file,
+            Principal principal) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(uploads.upload(file, accounts.idFor(principal.getName())));
+    }
+
+    @GetMapping("/uploads/{id}")
+    public KnowledgeUploadService.Upload upload(@PathVariable UUID id) {
+        return uploads.get(id);
     }
 }

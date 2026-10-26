@@ -1,10 +1,18 @@
 # Wiki 文件存储与导入任务
 
-M1-05 提供文件存储和后台任务基础。文件上传、ZIP 解析、文档版本发布和页面进度展示属于后续 M2/M3 任务，目前尚未提供。
+M1-05 提供文件存储和后台任务基础。M2-01 增加 Markdown/ZIP 上传暂存；文档解析发布、图片说明和页面进度展示仍属于后续 M2/M3 任务。
 
 ## 文件存储
 
-`WIKI_STORAGE_DIR` 指定服务端原文件存储目录，本地默认为 `./data/wiki/storage`，Compose 使用持久化的 `wiki_storage` 卷。存储服务按随机 UUID 命名文件，保留原始文件名、大小和 SHA-256 供后续文档版本记录使用；拒绝客户端路径和超过 30MB 的文件。当前尚无文件上传接口，因此应用启动不会写入原文件。
+`WIKI_STORAGE_DIR` 指定服务端原文件存储目录，本地默认为 `./data/wiki/storage`，Compose 使用持久化的 `wiki_storage` 卷。存储服务按随机 UUID 命名文件，保留原始文件名、大小和 SHA-256 供后续文档版本记录使用；拒绝客户端路径和超过 30MB 的文件。应用启动不会主动上传或写入原文件。
+
+## Markdown/ZIP 上传暂存
+
+`POST /api/knowledge/uploads` 接收 `multipart/form-data`，表单字段名为 `file`。请求需要登录 Cookie 和 `X-XSRF-TOKEN`。成功返回 HTTP 201，包含上传 ID、原文件存储键，以及各 Markdown/图片文件的原始相对路径、类型、存储键、大小和 SHA-256。`GET /api/knowledge/uploads/{id}` 在重启后也能查询同一份清单。
+
+支持单个 UTF-8 `.md`，或含至少一篇 Markdown 的 `.zip`；ZIP 内允许 `.md`、`.png`、`.jpg`、`.jpeg`，保留目录层级作为元数据。原包和解出的文件分别按 UUID 保存，文件不会按 ZIP 给出的路径写入磁盘。上传文件上限 30MB；ZIP 最多 500 个条目、解压后的文件总量最多 100MB。非法路径、重复路径、空 Markdown、图片扩展名与 PNG/JPEG 文件头不符等请求会被拒绝，并清理本次已写入的文件。
+
+上传清单存入 Flyway V2 的 `knowledge_upload` 和 `knowledge_upload_file`。**上传只暂存资料，不调用 Embedding，也不会自动出现在问答检索中。**后续 M2-02/M2-05 将基于清单建立文档与图片关联、处理版本并发布向量。
 
 ## 显式本地导入任务
 

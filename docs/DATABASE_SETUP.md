@@ -20,7 +20,7 @@
 
 PostgreSQL 同时存储普通业务表与向量表，不需要再运行一个独立向量服务。原始 Wiki Markdown 和图片存放在文件目录，数据库保存切片、路径与关联信息。
 
-当前使用 `vector_store` 进行 Wiki 检索；`app_user`、`chat_session`、`chat_message` 和 `chat_message_source` 已接入登录和聊天历史。`ingest_task` 已用于显式本地导入后台任务；文档版本和切片编辑相关表仍只有结构。Flyway 不预置账号，后端在空 `app_user` 表启动时创建默认账号。
+当前使用 `vector_store` 进行 Wiki 检索；`app_user`、`chat_session`、`chat_message` 和 `chat_message_source` 已接入登录和聊天历史。`ingest_task` 已用于显式本地导入后台任务；V2 的上传清单表用于暂存文件，文档版本和切片编辑相关表仍只有结构。Flyway 不预置账号，后端在空 `app_user` 表启动时创建默认账号。
 
 迁移的 Wiki 原文与图片位于 `data/wiki/source/`，属于私有数据，不提交到公开代码仓库。迁移这些文件不等于已经自动向量化入库；应用启动不重新导入全部文档，按 README 的导入入口进行处理。
 
@@ -30,11 +30,12 @@ PostgreSQL 同时存储普通业务表与向量表，不需要再运行一个独
 | --- | --- | --- |
 | [`database/00-create-database.sql`](../database/00-create-database.sql) | 创建 `lishou_agent`，安装 `vector`；数据库角色必须已经存在 | DBA／管理员，通过 psql 执行 |
 | [`src/main/resources/db/migration/V1__initial_schema.sql`](../src/main/resources/db/migration/V1__initial_schema.sql) | 创建所有业务表、向量表、约束、索引和注释 | Flyway，在应用第一次启动时执行 |
+| [`src/main/resources/db/migration/V2__knowledge_uploads.sql`](../src/main/resources/db/migration/V2__knowledge_uploads.sql) | 增加上传原包与文件清单表 | Flyway，在更新后的应用首次启动时执行 |
 | `public.flyway_schema_history` | 记录版本、校验和与迁移执行结果 | Flyway 自动维护 |
 
 Flyway 能创建表，但不会创建需要连接的数据库。`CREATE DATABASE` 不能放进普通 Flyway 事务，因而与 V1 分开。V1 不创建数据库角色、不设置密码、不写测试账号。
 
-不要另行维护一份重复的 `tables.sql`，也不要把 V1 重复挂载到 Docker 的 `/docker-entrypoint-initdb.d/`。表结构统一交给 Flyway。**已执行过的 V1 不再修改；后续调整追加 V2、V3。**
+不要另行维护一份重复的 `tables.sql`，也不要把迁移脚本重复挂载到 Docker 的 `/docker-entrypoint-initdb.d/`。表结构统一交给 Flyway。**已执行过的 V1、V2 不再修改；后续调整追加新的版本脚本。**
 
 ## 3. 配置文件与私有信息
 
@@ -94,7 +95,7 @@ $env:DB_URL = 'jdbc:postgresql://localhost:5433/lishou_agent'
 .\mvnw.cmd spring-boot:run
 ```
 
-应用启动时 Flyway 先执行 V1；`PgVectorStore` 关闭自身建表（`initializeSchema(false)`），由 Flyway 管理表结构，避免两套建表逻辑冲突。构建成功不等于模型调用和数据库链路已验证，请记录实际启动日志及后续检索结果。
+应用启动时 Flyway 按版本执行 V1、V2；`PgVectorStore` 关闭自身建表（`initializeSchema(false)`），由 Flyway 管理表结构，避免两套建表逻辑冲突。构建成功不等于模型调用和数据库链路已验证，请记录实际启动日志及后续检索结果。
 
 如果数据库数据卷已经存在，修改 `.env` 里的 `POSTGRES_*` 对应变量不会自动重建账号、改密码或重命名数据库。应通过 DBA 操作处理变更，不通过删除数据卷解决。
 
@@ -161,6 +162,7 @@ GRANT USAGE, CREATE ON SCHEMA public TO lishou_agent;
 | `knowledge_chunk_revision` | 原始正文、当前正文、人工编辑标记、模型、向量记录及发布状态 | 后续切片编辑与重新向量化 |
 | `vector_store` | `id uuid`、`content text`、`metadata jsonb`、`embedding vector(1024)` | 当前 Spring AI 文档检索 |
 | `ingest_task` | 导入／重索引类型、阶段、进度、状态、失败原因与尝试次数 | 当前本地导入任务记录、手动重试和重启中断处理；其他类型待开发 |
+| `knowledge_upload`、`knowledge_upload_file` | 上传者、原包存储键、Markdown/图片相对路径、哈希及大小 | M2-01 上传暂存清单；尚未建立文档版本或发布向量 |
 
 主要关系：用户 → 会话 → 消息 → 引用；文档 → 版本 → 图片；文档 → 稳定切片 → 修订 → 向量。生效文档版本和切片修订的复合外键确保指针指向其自身的版本，允许在同一事务内切换生效指针。引用关联在硬删除来源时置空，标题、章节和正文快照保留。
 
@@ -209,13 +211,13 @@ WHERE schemaname = 'public' AND tablename = 'vector_store';
 SELECT count(*) AS indexed_chunks FROM public.vector_store;
 ```
 
-预期有 11 张业务／向量表和 Flyway 历史表，V1 状态为 success，embedding 类型为 vector(1024)，HNSW 索引使用 cosine 操作符。首次初始化向量表为空是正常现象，需要显式导入 Wiki 才会有数据。
+更新到 V2 后预期有 13 张业务／向量表和 Flyway 历史表，V1/V2 状态均为 success，embedding 类型为 vector(1024)，HNSW 索引使用 cosine 操作符。首次初始化向量表为空是正常现象，需要显式导入 Wiki 才会有数据。
 
 ## 9. 持久化与模型变更
 
 Compose 的 `pg_data` 卷挂载 PostgreSQL 17 的 `/var/lib/postgresql/data`，保存数据库会话和向量；Wiki 原文与图片通过 `./data/wiki/source` 挂载到后端。普通容器重建继续使用同一卷可保留数据，`docker compose down -v` 会删除命名卷，不应作为常规重启命令。
 
-当前 Wiki 挂载为只读，适用于迁移基线读取和导入。后续上传页面需要新增可写的上传目录和独立存储配置，不能把只读挂载当作已经完成文件管理。
+当前 Wiki 来源挂载为只读，适用于迁移基线读取和导入。上传文件另存到可写的 `WIKI_STORAGE_DIR`，Compose 使用独立 `wiki_storage` 卷；目前尚无上传页面、原文预览或向量发布链路。
 
 Embedding 维度为 1024，模型或维度改变时需要完整重新向量化。即使维度相同，不同模型的向量空间也不能混用。应新增 Flyway 迁移／新索引表，构建和验证新索引，再切换检索配置；旧索引先保留回退能力。仅修改配置中的数字不会自动修改已有 vector(1024) 列，也不会重算旧向量。
 
@@ -223,7 +225,7 @@ Embedding 维度为 1024，模型或维度改变时需要完整重新向量化�
 
 ## 10. 备份与恢复演示（本次未执行）
 
-数据库备份不包含原始 Wiki 文件和图片，必须分别备份 `data/wiki/source`、后续上传目录，以及当前过渡阶段的文件会话目录／卷。建议在停止导入和写操作的窗口制作成组备份，记录时间、Git 版本、镜像版本和 Embedding 模型，保证文档、向量及文件关联一致。
+数据库备份不包含原始 Wiki 文件和图片，必须分别备份 `data/wiki/source` 和 `data/wiki/storage`（Compose 对应 `wiki_storage` 卷）。建议在停止导入和写操作的窗口制作成组备份，记录时间、Git 版本、镜像版本和 Embedding 模型，保证文档、向量及文件关联一致。
 
 ### 10.1 Docker 数据库备份
 
