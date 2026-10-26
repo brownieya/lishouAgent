@@ -4,6 +4,7 @@ import com.brownie.lishouagent.service.CompanyAssistantService;
 import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.ChatRepository;
 import com.brownie.lishouagent.service.KnowledgeImportService;
+import com.brownie.lishouagent.service.KnowledgeDocumentParseService;
 import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.service.KnowledgeUploadService;
 import com.brownie.lishouagent.model.ImportResult;
@@ -60,6 +61,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private KnowledgeUploadService uploads;
+
+    @MockitoBean
+    private KnowledgeDocumentParseService parser;
 
     @Test
     void healthIdentifiesTheMigratedApplication() throws Exception {
@@ -154,6 +158,22 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.format").value("MARKDOWN"));
         verify(uploads).upload(file, USER_ID);
+        verifyNoInteractions(importer, tasks);
+    }
+
+    @Test
+    void parsedUploadReturnsStructureWithoutStartingImport() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(parser.parse(id)).thenReturn(new KnowledgeDocumentParseService.ParseResult(id,
+                java.util.List.of(new KnowledgeDocumentParseService.ParsedDocument("guide.md", "说明",
+                        java.util.List.of(new KnowledgeDocumentParseService.Block("HEADING", "# 说明",
+                                java.util.List.of("说明"), 1, 1)), java.util.List.of())), java.util.List.of()));
+
+        mvc.perform(get("/api/knowledge/uploads/{id}/parsed", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documents[0].title").value("说明"))
+                .andExpect(jsonPath("$.documents[0].blocks[0].type").value("HEADING"));
+        verify(parser).parse(id);
         verifyNoInteractions(importer, tasks);
     }
 

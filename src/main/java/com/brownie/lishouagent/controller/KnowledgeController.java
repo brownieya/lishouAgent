@@ -3,6 +3,7 @@ package com.brownie.lishouagent.controller;
 import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.service.KnowledgeImportService;
+import com.brownie.lishouagent.service.KnowledgeDocumentParseService;
 import com.brownie.lishouagent.service.KnowledgeUploadService;
 import java.security.Principal;
 import java.util.UUID;
@@ -23,13 +24,15 @@ public class KnowledgeController {
     private final IngestTaskService tasks;
     private final AccountService accounts;
     private final KnowledgeUploadService uploads;
+    private final KnowledgeDocumentParseService parser;
 
     public KnowledgeController(KnowledgeImportService importer, IngestTaskService tasks, AccountService accounts,
-            KnowledgeUploadService uploads) {
+            KnowledgeUploadService uploads, KnowledgeDocumentParseService parser) {
         this.importer = importer;
         this.tasks = tasks;
         this.accounts = accounts;
         this.uploads = uploads;
+        this.parser = parser;
     }
 
     @PostMapping("/import/local")
@@ -64,5 +67,11 @@ public class KnowledgeController {
     @GetMapping("/uploads/{id}")
     public KnowledgeUploadService.Upload upload(@PathVariable UUID id) {
         return uploads.get(id);
+    }
+
+    // 查询上传解析预览时调用：返回文档结构和图片关联，不触发导入或向量化。
+    @GetMapping("/uploads/{id}/parsed")
+    public KnowledgeDocumentParseService.ParseResult parsedUpload(@PathVariable UUID id) throws Exception {
+        return parser.parse(id);
     }
 }
