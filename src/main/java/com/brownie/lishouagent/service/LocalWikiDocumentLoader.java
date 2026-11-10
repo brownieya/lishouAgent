@@ -10,9 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -20,18 +18,22 @@ import org.springframework.stereotype.Component;
 /** Explicit local Markdown ingestion; construction never reads or embeds Wiki data. */
 @Component
 public class LocalWikiDocumentLoader {
-    private static final Pattern TITLE = Pattern.compile("(?m)^#\\s+(.+)$");
-    private static final Pattern SECTION = Pattern.compile("(?m)^##[ \\t]+([^\\r\\n]+)");
-    private static final Pattern ENDPOINT = Pattern.compile("/api/[A-Za-z0-9/_-]+");
     private final Path sourceDirectory;
+    private final KnowledgeStructureChunker chunker;
 
     @Autowired
-    public LocalWikiDocumentLoader(@Value("${lishou.knowledge.source-dir:./data/wiki/source}") String directory) {
-        this(Path.of(directory));
+    public LocalWikiDocumentLoader(@Value("${lishou.knowledge.source-dir:./data/wiki/source}") String directory,
+            KnowledgeStructureChunker chunker) {
+        this(Path.of(directory), chunker);
     }
 
     public LocalWikiDocumentLoader(Path sourceDirectory) {
+        this(sourceDirectory, new KnowledgeStructureChunker(1600, 120));
+    }
+
+    LocalWikiDocumentLoader(Path sourceDirectory, KnowledgeStructureChunker chunker) {
         this.sourceDirectory = sourceDirectory.toAbsolutePath().normalize();
+        this.chunker = chunker;
     }
 
     public List<Document> load() {
@@ -47,7 +49,6 @@ public class LocalWikiDocumentLoader {
                         .sorted().toList();
             }
             List<Document> chunks = new ArrayList<>();
-            TokenTextSplitter splitter = new TokenTextSplitter();
             for (Path file : markdownFiles) {
                 if (!file.toRealPath().startsWith(realRoot)) {
                     throw new IllegalStateException("Wiki file is outside the configured source directory");
@@ -58,30 +59,33 @@ public class LocalWikiDocumentLoader {
                 }
                 String sourcePath = realRoot.relativize(file).toString().replace('\\', '/');
                 String documentId = stableId("wiki:" + sourcePath);
-                var matcher = TITLE.matcher(text);
-                String title = matcher.find() ? matcher.group(1).trim() : file.getFileName().toString();
+                var parsed = KnowledgeDocumentParseService.parseMarkdown(sourcePath, text);
+                String title = parsed.title();
                 var metadata = new HashMap<String, Object>();
                 metadata.put("documentId", documentId);
                 metadata.put("sourcePath", sourcePath);
                 metadata.put("title", title);
                 metadata.put("updatedAt", Files.getLastModifiedTime(file).toInstant().toString());
-                int chunkIndex = 0;
-                // 按二级标题先分章节，再限长切片，避免相邻接口的字段进入同一切片。
-                for (WikiSection section : sections(text, title)) {
-                    var sectionMetadata = new HashMap<>(metadata);
-                    sectionMetadata.put("section", section.title());
-                    String endpoint = endpoint(section.text());
-                    if (endpoint != null) sectionMetadata.put("endpoint", endpoint);
-                    List<Document> split = splitter.apply(List.of(new Document(section.text(), sectionMetadata)));
-                    for (Document part : split) {
-                        var chunkMetadata = new HashMap<>(sectionMetadata);
-                        chunkMetadata.put("chunkIndex", chunkIndex);
-                        String context = "文档：" + title + "\n章节：" + section.title()
-                                + (endpoint == null ? "" : "\n接口：" + endpoint) + "\n\n";
-                        chunks.add(Document.builder().id(stableId(documentId + ":" + chunkIndex))
-                                .text(context + part.getText()).metadata(chunkMetadata).build());
-                        chunkIndex++;
-                    }
+                String projectName = KnowledgeStructureChunker.projectName(sourcePath);
+                if (projectName != null) metadata.put("projectName", projectName);
+                // 显式导入时用与上传预览相同的结构切片规则；保留接口与来源信息，防止跨接口混答。
+                for (KnowledgeStructureChunker.Chunk chunk : chunker.chunk(parsed)) {
+                    var chunkMetadata = new HashMap<>(metadata);
+                    chunkMetadata.put("section", chunk.section());
+                    chunkMetadata.put("headingPath", chunk.headingPath());
+                    chunkMetadata.put("sourceStartLine", chunk.startLine());
+                    chunkMetadata.put("sourceEndLine", chunk.endLine());
+                    chunkMetadata.put("blockTypes", chunk.blockTypes());
+                    chunkMetadata.put("oversized", chunk.oversized());
+                    chunkMetadata.put("chunkIndex", chunk.index());
+                    if (chunk.endpoint() != null) chunkMetadata.put("endpoint", chunk.endpoint());
+                    String context = "文档：" + title
+                            + (projectName == null ? "" : "\n项目：" + projectName)
+                            + "\n章节：" + chunk.section()
+                            + "\n标题路径：" + String.join(" > ", chunk.headingPath())
+                            + (chunk.endpoint() == null ? "" : "\n接口：" + chunk.endpoint()) + "\n\n";
+                    chunks.add(Document.builder().id(stableId(documentId + ":" + chunk.index()))
+                            .text(context + chunk.text()).metadata(chunkMetadata).build());
                 }
             }
             if (chunks.isEmpty()) throw new IllegalStateException("No non-empty Markdown documents found");
@@ -95,36 +99,4 @@ public class LocalWikiDocumentLoader {
         return UUID.nameUUIDFromBytes(value.getBytes(StandardCharsets.UTF_8)).toString();
     }
 
-    // load 的辅助方法：按二级标题划分章节；导言与紧邻的通用约定一起提供完整规范。
-    private static List<WikiSection> sections(String text, String title) {
-        var sections = new ArrayList<WikiSection>();
-        var matcher = SECTION.matcher(text);
-        int start = 0;
-        String sectionTitle = title;
-        boolean firstHeading = true;
-        while (matcher.find()) {
-            String heading = matcher.group(1).trim();
-            if (firstHeading && heading.equals("通用约定")) {
-                sectionTitle = heading;
-                firstHeading = false;
-                continue;
-            }
-            if (!text.substring(start, matcher.start()).isBlank()) {
-                sections.add(new WikiSection(sectionTitle, text.substring(start, matcher.start())));
-            }
-            start = matcher.start();
-            sectionTitle = heading;
-            firstHeading = false;
-        }
-        sections.add(new WikiSection(sectionTitle, text.substring(start)));
-        return sections;
-    }
-
-    // load 的辅助方法：从一个章节中提取接口路径，供检索时按接口限定来源。
-    private static String endpoint(String text) {
-        var matcher = ENDPOINT.matcher(text);
-        return matcher.find() ? matcher.group() : null;
-    }
-
-    private record WikiSection(String title, String text) {}
 }

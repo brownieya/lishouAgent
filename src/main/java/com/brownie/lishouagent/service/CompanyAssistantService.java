@@ -3,6 +3,8 @@ package com.brownie.lishouagent.service;
 import com.brownie.lishouagent.model.SourceReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -29,6 +31,7 @@ import reactor.core.scheduler.Schedulers;
 public class CompanyAssistantService {
     private static final Logger log = LoggerFactory.getLogger(CompanyAssistantService.class);
     private static final String NO_KNOWLEDGE = "当前知识库没有找到足够的相关资料，暂时无法确认。请补充项目名称或导入对应的 Wiki 文档。";
+    private static final int ENDPOINT_TOP_K = 20;
     private static final Pattern API_PATH = Pattern.compile("/api/[A-Za-z0-9/_-]+");
     private static final Pattern INTERFACE_FOLLOW_UP = Pattern.compile("(这个|该|上述|前述)接口");
     private static final String SYSTEM = """
@@ -39,6 +42,11 @@ public class CompanyAssistantService {
             资料不足或相互冲突时明确说明，不编造公司事实、链接或步骤。
             问题指定接口时，只说明该接口的字段，不混用其他接口的请求或响应结构。
             必填、非空、取值范围等校验规则只在资料明确写出时陈述；不能从示例值推断规则。
+            接口字段表有“必填”列时，逐项以该列判断必填与可选；请求示例中出现字段不代表必填，引用示例也不能证明必填。
+            字段含义以对应字段表为准；单位在字段表与通用约定冲突时，列出两种写法并说明需接口负责人确认，不得指定按哪种单位提交或自行建议换算。
+            类型为 number 不等于正整数；“必填”只说明字段需提供，不自动规定非空字符串、非 null、数值范围或整数性。
+            示例值不能证明字段必填、数值精度或示例满足全部约束；资料未明确写出的校验条件应说“未规定”。
+            文档未提及额外查询参数或请求头，不等于明确规定“没有”；认证方式待定时不可断言无需认证。
             资料片段没有提到某项时，只能说本轮依据不足，不能断言整篇文档未提及；“待定”应如实回答。
             使用中文，必要时按步骤说明，并用 [1]、[2] 等引用本轮资料编号。
             """;
@@ -71,14 +79,18 @@ public class CompanyAssistantService {
             UUID answerId = chats.startTurn(userId, sessionId, message);
             StringBuilder answer = new StringBuilder();
             return Flux.defer(() -> {
-                var search = SearchRequest.builder().query(retrievalQuery(message, history))
-                        .topK(topK).similarityThreshold(threshold);
                 String endpoint = endpointForQuestion(message, history);
+                String query = retrievalQuery(message, history);
+                var search = SearchRequest.builder().query(query)
+                        .topK(endpoint == null ? topK : ENDPOINT_TOP_K)
+                        .similarityThreshold(endpoint == null ? threshold : 0.0);
                 if (endpoint != null) {
                     search.filterExpression(new FilterExpressionBuilder().eq("endpoint", endpoint).build());
                 }
-                List<Document> documents = vectorStore.similaritySearch(search.build());
-                if (documents == null || documents.isEmpty()) {
+                List<Document> retrieved = vectorStore.similaritySearch(search.build());
+                List<Document> documents = retrieved == null ? List.of()
+                        : endpoint == null ? retrieved : endpointContext(retrieved, query);
+                if (documents.isEmpty()) {
                     chats.complete(answerId, NO_KNOWLEDGE, List.of());
                     return Flux.just(event("sources", "[]"), event("answer", NO_KNOWLEDGE), event("done", ""));
                 }
@@ -166,6 +178,32 @@ public class CompanyAssistantService {
             }
         }
         return null;
+    }
+
+    // 指定接口的检索辅助步骤：补齐同文档的通用约定，让回答能识别字段表与通用规则的冲突。
+    private List<Document> endpointContext(List<Document> retrieved, String query) {
+        if (retrieved.isEmpty()) return retrieved;
+        Object path = retrieved.getFirst().getMetadata().get("sourcePath");
+        if (!(path instanceof String sourcePath) || sourcePath.isBlank()) return sourceOrder(retrieved);
+        var filter = new FilterExpressionBuilder();
+        var commonSearch = SearchRequest.builder().query(query).topK(3).similarityThreshold(0.0)
+                .filterExpression(filter.and(filter.eq("sourcePath", sourcePath),
+                        filter.eq("section", "通用约定")).build()).build();
+        List<Document> common = vectorStore.similaritySearch(commonSearch);
+        if (common == null || common.isEmpty()) return sourceOrder(retrieved);
+        List<Document> combined = new ArrayList<>(retrieved);
+        combined.addAll(common);
+        return sourceOrder(combined);
+    }
+
+    // endpointContext 的排序辅助步骤：按来源文档与切片序号还原字段表、示例的阅读顺序。
+    private static List<Document> sourceOrder(List<Document> documents) {
+        return documents.stream().sorted(Comparator
+                .comparing((Document document) -> String.valueOf(document.getMetadata().getOrDefault("sourcePath", "")))
+                .thenComparingInt(document -> {
+                    Object index = document.getMetadata().get("chunkIndex");
+                    return index instanceof Number number ? number.intValue() : Integer.MAX_VALUE;
+                })).toList();
     }
 
     private static String knowledgeContext(List<Document> documents) {

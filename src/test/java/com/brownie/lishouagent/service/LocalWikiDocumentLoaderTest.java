@@ -39,9 +39,13 @@ class LocalWikiDocumentLoaderTest {
                 .filter(chunk -> "业务/部署.MD".equals(chunk.getMetadata().get("sourcePath")))
                 .findFirst().orElseThrow();
         assertThat(deployment.getMetadata()).containsEntry("title", "部署流程")
-                .containsEntry("section", "部署流程").containsEntry("chunkIndex", 0);
+                .containsEntry("section", "部署流程").containsEntry("chunkIndex", 0)
+                .containsEntry("projectName", "业务")
+                .containsEntry("sourceStartLine", 3);
+        assertThat(deployment.getMetadata().get("headingPath")).isEqualTo(List.of("部署流程"));
         assertThat(deployment.getMetadata().get("updatedAt")).isNotNull();
-        assertThat(deployment.getText()).contains("| 阶段 | 负责人 |", "./assets/architecture.png", "发布申请");
+        assertThat(deployment.getText()).contains("| 阶段 | 负责人 |", "./assets/architecture.png", "发布申请",
+                "项目：业务", "标题路径：部署流程");
         assertThat(deployment.getMetadata().get("sourcePath").toString()).doesNotContain(directory.toString());
         assertThat(UUID.fromString(deployment.getId())).isNotNull();
 
@@ -122,5 +126,20 @@ class LocalWikiDocumentLoaderTest {
         assertThat(chunks).anySatisfy(chunk -> assertThat(chunk.getMetadata())
                 .containsEntry("section", "接口 1：订单下发")
                 .containsEntry("endpoint", "/api/v1/demo/order/receive"));
+    }
+
+    @Test
+    void localLoaderUsesConfiguredParagraphSizeWithoutSplittingSteps() throws Exception {
+        Files.writeString(directory.resolve("步骤.md"), "# 操作步骤\n" + "正文".repeat(70)
+                + "\n1. 打开页面\n   保持完整步骤说明。\n");
+
+        var chunks = new LocalWikiDocumentLoader(directory, new KnowledgeStructureChunker(80, 10)).load();
+
+        assertThat(chunks).hasSizeGreaterThan(2);
+        assertThat(chunks).anySatisfy(chunk -> {
+            assertThat(chunk.getMetadata()).containsEntry("sourceStartLine", 3)
+                    .containsEntry("sourceEndLine", 4);
+            assertThat(chunk.getText()).contains("1. 打开页面", "保持完整步骤说明。");
+        });
     }
 }

@@ -54,6 +54,11 @@ public class KnowledgeDocumentParseService {
         return new ParseResult(uploadId, documents, unreferencedImages);
     }
 
+    // 本地 Wiki 导入调用：复用与上传预览相同的结构解析，图片引用留给上传清单匹配流程处理。
+    static ParsedDocument parseMarkdown(String path, String markdown) {
+        return parseDocument(path, markdown, Map.of(), new HashSet<>());
+    }
+
     // parse 的文档辅助步骤：把 Markdown 行归为标题、表格、步骤、列表、代码和正文块，保留标题层级与行号。
     private static ParsedDocument parseDocument(String path, String markdown,
             Map<String, KnowledgeUploadService.UploadFile> images, Set<String> linkedImages) {
@@ -127,6 +132,9 @@ public class KnowledgeDocumentParseService {
     private static boolean startsNewBlock(String currentType, String line) {
         if (tableRow(line)) return !currentType.equals("TABLE");
         if (currentType.equals("TABLE")) return true;
+        // 列表或步骤后未缩进的说明属于新正文块，避免整段说明被当成不可拆的列表项。
+        if ((currentType.equals("LIST") || currentType.equals("STEP"))
+                && !Character.isWhitespace(line.charAt(0))) return true;
         return ORDERED_STEP.matcher(line).matches() || LIST_ITEM.matcher(line).matches();
     }
 

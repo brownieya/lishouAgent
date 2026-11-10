@@ -5,6 +5,7 @@ import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.ChatRepository;
 import com.brownie.lishouagent.service.KnowledgeImportService;
 import com.brownie.lishouagent.service.KnowledgeDocumentParseService;
+import com.brownie.lishouagent.service.KnowledgeStructureChunker;
 import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.service.KnowledgeUploadService;
 import com.brownie.lishouagent.model.ImportResult;
@@ -64,6 +65,9 @@ class ApiControllerTest {
 
     @MockitoBean
     private KnowledgeDocumentParseService parser;
+
+    @MockitoBean
+    private KnowledgeStructureChunker chunker;
 
     @Test
     void healthIdentifiesTheMigratedApplication() throws Exception {
@@ -174,6 +178,23 @@ class ApiControllerTest {
                 .andExpect(jsonPath("$.documents[0].title").value("说明"))
                 .andExpect(jsonPath("$.documents[0].blocks[0].type").value("HEADING"));
         verify(parser).parse(id);
+        verifyNoInteractions(importer, tasks);
+    }
+
+    @Test
+    void chunkPreviewUsesParsedUploadWithoutStartingImport() throws Exception {
+        UUID id = UUID.randomUUID();
+        var parsed = new KnowledgeDocumentParseService.ParseResult(id, java.util.List.of(), java.util.List.of());
+        when(parser.parse(id)).thenReturn(parsed);
+        when(chunker.preview(parsed)).thenReturn(new KnowledgeStructureChunker.ChunkPreview(id, 1600, 120,
+                java.util.List.of()));
+
+        mvc.perform(get("/api/knowledge/uploads/{id}/chunks", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.uploadId").value(id.toString()))
+                .andExpect(jsonPath("$.maxChars").value(1600));
+        verify(parser).parse(id);
+        verify(chunker).preview(parsed);
         verifyNoInteractions(importer, tasks);
     }
 

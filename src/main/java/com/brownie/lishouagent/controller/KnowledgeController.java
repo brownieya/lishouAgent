@@ -4,6 +4,7 @@ import com.brownie.lishouagent.service.AccountService;
 import com.brownie.lishouagent.service.IngestTaskService;
 import com.brownie.lishouagent.service.KnowledgeImportService;
 import com.brownie.lishouagent.service.KnowledgeDocumentParseService;
+import com.brownie.lishouagent.service.KnowledgeStructureChunker;
 import com.brownie.lishouagent.service.KnowledgeUploadService;
 import java.security.Principal;
 import java.util.UUID;
@@ -25,14 +26,16 @@ public class KnowledgeController {
     private final AccountService accounts;
     private final KnowledgeUploadService uploads;
     private final KnowledgeDocumentParseService parser;
+    private final KnowledgeStructureChunker chunker;
 
     public KnowledgeController(KnowledgeImportService importer, IngestTaskService tasks, AccountService accounts,
-            KnowledgeUploadService uploads, KnowledgeDocumentParseService parser) {
+            KnowledgeUploadService uploads, KnowledgeDocumentParseService parser, KnowledgeStructureChunker chunker) {
         this.importer = importer;
         this.tasks = tasks;
         this.accounts = accounts;
         this.uploads = uploads;
         this.parser = parser;
+        this.chunker = chunker;
     }
 
     @PostMapping("/import/local")
@@ -73,5 +76,11 @@ public class KnowledgeController {
     @GetMapping("/uploads/{id}/parsed")
     public KnowledgeDocumentParseService.ParseResult parsedUpload(@PathVariable UUID id) throws Exception {
         return parser.parse(id);
+    }
+
+    // 查询切片预览时调用：复用解析结果展示切片边界，不发送文本到 Embedding 服务。
+    @GetMapping("/uploads/{id}/chunks")
+    public KnowledgeStructureChunker.ChunkPreview chunkPreview(@PathVariable UUID id) throws Exception {
+        return chunker.preview(parser.parse(id));
     }
 }

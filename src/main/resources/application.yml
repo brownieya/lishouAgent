@@ -30,6 +30,9 @@ lishou:
   knowledge:
     source-dir: ${WIKI_SOURCE_DIR:./data/wiki/source}
     storage-dir: ${WIKI_STORAGE_DIR:./data/wiki/storage}
+    chunk:
+      max-chars: ${KNOWLEDGE_CHUNK_MAX_CHARS:1600}
+      overlap-chars: ${KNOWLEDGE_CHUNK_OVERLAP_CHARS:120}
   rag:
     top-k: 5
     similarity-threshold: 0.45
