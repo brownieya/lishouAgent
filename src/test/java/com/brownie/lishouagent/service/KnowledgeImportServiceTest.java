@@ -33,10 +33,13 @@ class KnowledgeImportServiceTest {
         }
         when(loader.load()).thenReturn(chunks);
 
-        var result = new KnowledgeImportService(loader, vectorStore, jdbc).importLocal();
+        List<String> progress = new ArrayList<>();
+        var result = new KnowledgeImportService(loader, vectorStore, jdbc)
+                .importLocal((total, completed) -> progress.add(total + "/" + completed));
         assertThat(result.documentCount()).isEqualTo(2);
         assertThat(result.chunkCount()).isEqualTo(23);
         assertThat(result.importedCount()).isEqualTo(23);
+        assertThat(progress).containsExactly("23/0", "23/10", "23/20", "23/23");
         ArgumentCaptor<List<Document>> batches = ArgumentCaptor.forClass((Class) List.class);
         verify(vectorStore, times(3)).add(batches.capture());
         assertThat(batches.getAllValues()).extracting(List::size).containsExactly(10, 10, 3);
@@ -65,5 +68,25 @@ class KnowledgeImportServiceTest {
         doThrow(new IllegalStateException("embedding failed")).when(vectorStore).add(anyList());
         assertThatThrownBy(() -> new KnowledgeImportService(loader, vectorStore, jdbc).importLocal())
                 .isInstanceOf(IllegalStateException.class).hasMessage("embedding failed");
+    }
+
+    @Test
+    void failedBatchDoesNotReportItAsProcessed() {
+        var loader = mock(LocalWikiDocumentLoader.class);
+        var vectorStore = mock(VectorStore.class);
+        var jdbc = mock(JdbcTemplate.class);
+        List<Document> chunks = new ArrayList<>();
+        for (int index = 0; index < 11; index++) {
+            chunks.add(new Document("片段" + index, Map.of("documentId", "doc-a")));
+        }
+        when(loader.load()).thenReturn(chunks);
+        org.mockito.Mockito.doNothing().doThrow(new IllegalStateException("embedding failed"))
+                .when(vectorStore).add(anyList());
+        List<String> progress = new ArrayList<>();
+
+        assertThatThrownBy(() -> new KnowledgeImportService(loader, vectorStore, jdbc)
+                .importLocal((total, completed) -> progress.add(total + "/" + completed)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(progress).containsExactly("11/0", "11/10");
     }
 }

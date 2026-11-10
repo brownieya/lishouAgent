@@ -14,12 +14,14 @@ import org.springframework.web.server.ResponseStatusException;
 public class IngestTaskService {
     private final JdbcTemplate jdbc;
     private final KnowledgeImportService importer;
+    private final IngestTaskProgressService progress;
     private final TaskExecutor executor;
 
-    public IngestTaskService(JdbcTemplate jdbc, KnowledgeImportService importer,
+    public IngestTaskService(JdbcTemplate jdbc, KnowledgeImportService importer, IngestTaskProgressService progress,
             @Qualifier("ingestTaskExecutor") TaskExecutor executor) {
         this.jdbc = jdbc;
         this.importer = importer;
+        this.progress = progress;
         this.executor = executor;
     }
 
@@ -64,13 +66,13 @@ public class IngestTaskService {
         }
     }
 
-    // 后台线程调用：状态先变为 RUNNING；导入事务完成后才写成功，异常仅记录通用错误信息。
+    // 后台线程调用：先登记解析阶段，再逐批记录处理数；导入事务完成后才标记成功。
     private void runLocalImport(UUID id) {
-        int claimed = jdbc.update("UPDATE public.ingest_task SET status='RUNNING',stage='EMBEDDING',"
+        int claimed = jdbc.update("UPDATE public.ingest_task SET status='RUNNING',stage='PARSING',"
                         + "started_at=now(),updated_at=now() WHERE id=? AND status='PENDING'", id);
         if (claimed == 0) return;
         try {
-            ImportResult result = importer.importLocal();
+            ImportResult result = importer.importLocal((total, completed) -> progress.record(id, total, completed));
             jdbc.update("UPDATE public.ingest_task SET status='COMPLETE',stage='FINISHED',"
                             + "total_items=?,completed_items=?,finished_at=now(),updated_at=now() WHERE id=?",
                     result.chunkCount(), result.importedCount(), id);

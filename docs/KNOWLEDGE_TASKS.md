@@ -1,6 +1,6 @@
 # Wiki 文件存储与导入任务
 
-M1-05 提供文件存储和后台任务基础。M2-01 增加 Markdown/ZIP 上传暂存；文档解析发布、图片说明和页面进度展示仍属于后续 M2/M3 任务。
+M1-05 提供文件存储和后台任务基础。M2-01 增加 Markdown/ZIP 上传暂存；M2-04 增加本地导入任务的逐批进度。上传内容的版本发布、图片说明和页面进度展示仍属于后续 M2/M3 任务。
 
 ## 文件存储
 
@@ -36,6 +36,8 @@ Markdown 图片语法和 HTML `img src` 的本地相对路径会以 Markdown 所
 | `GET /api/knowledge/tasks/{id}` | 查询 `status`、`stage`、进度、尝试次数及通用错误提示 |
 | `POST /api/knowledge/tasks/{id}/retry` | 手动重试失败或中断的本地导入任务，返回 HTTP 202 |
 
-任务记录写入 `ingest_task`。完成后 `status=COMPLETE`、`stage=FINISHED`，`completedItems` 为本次写入切片数。失败时只保存固定错误码和通用提示，不保存模型异常正文。后端重启将遗留的 `PENDING`、`RUNNING` 任务标记为 `INTERRUPTED`，不会自动重试或重新发送 Wiki 文本。
+任务记录写入 `ingest_task`。任务领取后为 `RUNNING/PARSING`；解析完成会设置 `totalItems`，进入 `EMBEDDING`，每处理完最多 10 个切片更新一次 `completedItems`。向量事务完成后为 `COMPLETE/FINISHED`，两项计数相等。运行中可重复 GET 同一任务 ID 查看进度。
 
-已有的 `POST /api/knowledge/import/local` 仍是同步接口；需要查询后台状态时使用新的任务接口。本阶段还没有逐批 Embedding 的实时进度，相关能力在 M2-04 开发。
+进度表示本次尝试**已处理**的切片数，不表示这批向量已经发布。导入失败时向量替换事务回滚，旧向量仍生效；任务保留失败前的已处理数，并只保存固定错误码和通用提示，不保存模型异常正文。可对 `FAILED` 或 `INTERRUPTED` 任务显式调用重试接口；重试会增加 `attemptNo` 并将计数清零。后端重启将遗留的 `PENDING`、`RUNNING` 任务标记为 `INTERRUPTED`，不会自动重试或重新发送 Wiki 文本。
+
+已有的 `POST /api/knowledge/import/local` 仍是同步接口；需要查询后台状态时使用任务接口。上传的 Markdown/ZIP 暂存资料尚未接入此导入任务，任务目前只处理配置的本地 Wiki 目录。
